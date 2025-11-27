@@ -1,0 +1,156 @@
+/* Import Inter font from Google Fonts */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* CSS Custom Properties for design tokens */
+:root {
+  /* Backgrounds */
+  --color-page: #F8FAFC;
+  --color-surface: #FFFFFF;
+  --color-subtle: #F1F5F9;
+  --color-elevated: #FFFFFF;
+
+  /* Primary accent */
+  --color-primary: #059669;
+  --color-primary-soft: #D1FAE5;
+  --color-primary-hover: #047857;
+  --color-primary-active: #065F46;
+
+  /* Text */
+  --color-text-primary: #1E293B;
+  --color-text-secondary: #475569;
+  --color-text-muted: #64748B;
+  --color-text-subtle: #94A3B8;
+
+  /* Borders */
+  --color-border: #E2E8F0;
+  --color-border-subtle: #F1F5F9;
+  --color-border-strong: #CBD5E1;
+
+  /* Shadows */
+  --shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06);
+  --shadow-card-hover: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.06);
+  --shadow-dropdown: 0 10px 15px -3px rgb(0 0 0 / 0.08), 0 4px 6px -4px rgb(0 0 0 / 0.06);
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 200ms ease;
+}
+
+/* Base layer resets */
+@layer base {
+  html {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: #F8FAFC;
+    color: #1E293B;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  /* Better focus styles */
+  *:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 2px #FFFFFF, 0 0 0 4px #059669;
+  }
+
+  /* Custom scrollbar for webkit browsers */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background-color: #F1F5F9;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: #CBD5E1;
+    border-radius: 9999px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: #94A3B8;
+  }
+}
+
+/* Component layer utilities */
+@layer components {
+  /* Card base styles */
+  .card {
+    @apply bg-surface rounded-card shadow-card border border-border;
+  }
+
+  .card-elevated {
+    @apply bg-surface rounded-card shadow-card-hover border border-border;
+  }
+
+  /* Button base styles */
+  .btn {
+    @apply inline-flex items-center justify-center font-medium rounded-button transition-all duration-150;
+    @apply focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary;
+  }
+
+  .btn-primary {
+    @apply btn px-4 py-2.5 bg-primary text-white hover:bg-primary-hover active:bg-primary-active;
+  }
+
+  .btn-secondary {
+    @apply btn px-4 py-2.5 bg-subtle text-text-primary hover:bg-border border border-border;
+  }
+
+  .btn-ghost {
+    @apply btn px-4 py-2.5 text-text-secondary hover:bg-subtle hover:text-text-primary;
+  }
+
+  /* Input base styles */
+  .input {
+    @apply w-full px-3.5 py-2.5 bg-surface border border-border rounded-input text-body-sm text-text-primary;
+    @apply placeholder:text-text-subtle;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary;
+    @apply transition-all duration-150;
+  }
+
+  .select {
+    @apply input appearance-none bg-no-repeat bg-right pr-10 cursor-pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2364748B'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+    background-size: 1.25rem;
+    background-position: right 0.75rem center;
+  }
+
+  /* Badge base styles */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 text-tiny font-medium rounded-badge;
+  }
+
+  .badge-primary {
+    @apply badge bg-primary-soft text-primary;
+  }
+
+  .badge-warning {
+    @apply badge bg-warning-soft text-warning-text;
+  }
+
+  .badge-error {
+    @apply badge bg-error-soft text-error-text;
+  }
+
+  .badge-success {
+    @apply badge bg-success-soft text-success-text;
+  }
+
+  .badge-info {
+    @apply badge bg-info-soft text-info-text;
+  }
+
+  .badge-neutral {
+    @apply badge bg-subtle text-text-secondary;
+  }
+}
