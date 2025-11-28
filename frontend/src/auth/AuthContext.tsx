@@ -1,0 +1,13 @@
+import { createContext, useContext } from "react";
+import type { User } from "firebase/auth";
+
+// Auth context to share user state across the app
+export interface AuthContextType {
+  user: User | null;
+  loading: boolean;
+}
+
+export const AuthContext = createContext<AuthContextType>({ user: null, loading: true });
+
+export const useAuth = () => useContext(AuthContext);
+

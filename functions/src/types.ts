@@ -1,5 +1,21 @@
 /**
  * Firestore schema types for three-man-league
+ *
+ * DATA MODEL OVERVIEW:
+ *
+ * /users/{userId}                    - User profile (displayName, email, photoURL, activeLeagueId)
+ * /users/{userId}/playerUsage/{id}   - Player usage tracking (season, playerId, firstUsedWeek, leagueId)
+ *
+ * /leagues/{leagueId}                - League configuration and settings
+ * /leagues/{leagueId}/members/{uid}  - League membership (role, joinedAt, invitedBy)
+ * /leagues/{leagueId}/weeks/{weekId} - Week status
+ * /leagues/{leagueId}/weeks/{weekId}/picks/{userId}  - User picks for week
+ * /leagues/{leagueId}/weeks/{weekId}/scores/{userId} - User scores for week
+ * /leagues/{leagueId}/seasonStandings/{userId}       - Season standings
+ *
+ * /players/{playerId}                - NFL player data
+ * /games/{gameId}                    - NFL game schedule
+ * /config/season                     - Global season config
  */
 
 import type { Timestamp } from "firebase-admin/firestore";
@@ -9,25 +25,92 @@ export interface User {
   displayName: string;
   email: string;
   photoURL?: string;
+  activeLeagueId?: string; // Currently selected league
+  createdAt?: Date | Timestamp;
+  updatedAt?: Date | Timestamp;
 }
 
 export interface PlayerUsage {
   season: string;
   playerId: string;
   firstUsedWeek: string;
+  leagueId: string; // Player usage is now scoped per league
 }
 
 // ===== Leagues =====
+export type LeagueStatus = "preseason" | "active" | "completed" | "archived";
+export type MemberRole = "owner" | "coOwner" | "member";
+
+export interface PayoutEntry {
+  rank: number;
+  amount: number;
+}
+
 export interface League {
   name: string;
+  ownerId: string;
   season: string;
   entryFee: number;
-  payouts: Record<string, number>; // rank -> amount e.g. {"1": 1200, "2": 750}
+  payouts: Record<string, number>; // Legacy format: rank -> amount e.g. {"1": 1200}
+  payoutStructure?: PayoutEntry[]; // New format: ordered array [{rank: 1, amount: 1200}, ...]
+  payoutTotal?: number; // Computed total of all payouts
+  maxPlayers?: number; // Optional limit on league size
+  joinCode: string; // Short unique code for joining (e.g., "ABC123")
+  joinLink?: string; // Full URL with join code
+  joinCodeExpiresAt?: Date | Timestamp; // Optional expiration
+  status: LeagueStatus;
+  membershipLocked?: boolean; // Prevent new members after season starts
+  createdAt: Date | Timestamp;
+  updatedAt?: Date | Timestamp;
 }
 
 export interface LeagueMember {
+  userId: string;
+  displayName: string;
+  email: string;
+  role: MemberRole;
   joinedAt: Date | Timestamp;
-  role: "owner" | "player";
+  invitedBy?: string; // userId who invited this member
+  isActive: boolean; // For soft-delete / leaving league
+}
+
+// ===== League API Types =====
+export interface CreateLeagueRequest {
+  name: string;
+  entryFee?: number;
+  maxPlayers?: number;
+  payoutStructure?: PayoutEntry[];
+  season?: string;
+}
+
+export interface CreateLeagueResponse {
+  ok: boolean;
+  leagueId: string;
+  joinCode: string;
+  joinLink: string;
+  error?: string;
+}
+
+export interface JoinLeagueRequest {
+  joinCode: string;
+  leagueId?: string; // Optional for explicit join
+}
+
+export interface JoinLeagueResponse {
+  ok: boolean;
+  leagueId: string;
+  leagueName: string;
+  error?: string;
+}
+
+export interface LeagueSummary {
+  id: string;
+  name: string;
+  season: string;
+  memberCount: number;
+  role: MemberRole;
+  status: LeagueStatus;
+  entryFee: number;
 }
 
 // ===== Weeks =====

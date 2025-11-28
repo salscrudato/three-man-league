@@ -1,8 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { db } from "../../firebase";
 import { collection, query, orderBy, getDocs, doc, getDoc } from "firebase/firestore";
 import { PAYOUT_STRUCTURE, TOTAL_POT, ENTRY_FEE } from "../../types";
-import { Card, CardHeader, Badge, Tabs, Select, TableSkeleton } from "../../components";
+import { Card, CardHeader, Badge, Tabs, Select, TableSkeleton, Button } from "../../components";
+import { useLeague } from "../../league/LeagueContext";
 
 interface WeeklyScore {
   userId: string;
@@ -43,28 +44,39 @@ const MedalIcon: React.FC<{ rank: number }> = ({ rank }) => {
 };
 
 export const StandingsPage: React.FC = () => {
+  const { activeLeagueId, activeLeague, loading: leagueLoading } = useLeague();
   const [weeklyScores, setWeeklyScores] = useState<WeeklyScore[]>([]);
   const [seasonStandings, setSeasonStandings] = useState<SeasonStanding[]>([]);
-  const [weekId, setWeekId] = useState("week-1");
+  const [weekId, setWeekId] = useState("");
   const [viewMode, setViewMode] = useState<ViewMode>("weekly");
   const [loading, setLoading] = useState(true);
   const [userNames, setUserNames] = useState<Record<string, string>>({});
 
-  const leagueId = import.meta.env.VITE_LEAGUE_ID;
+  // Use activeLeagueId from context
+  const leagueId = activeLeagueId;
 
-  // Determine current week
+  // Determine current week from Firestore config (synced from ESPN)
   useEffect(() => {
-    const now = new Date();
-    const seasonStart = new Date("2025-09-04");
-    if (now >= seasonStart) {
-      const weekNum = Math.min(18, Math.max(1, Math.ceil((now.getTime() - seasonStart.getTime()) / (7 * 24 * 60 * 60 * 1000))));
-      setWeekId(`week-${weekNum}`);
+    async function loadCurrentWeek() {
+      try {
+        const configRef = doc(db, "config", "season");
+        const configSnap = await getDoc(configRef);
+        if (configSnap.exists()) {
+          const data = configSnap.data();
+          const currentWeek = data.currentWeek || 1;
+          setWeekId(`week-${currentWeek}`);
+        }
+      } catch {
+        // Fallback to week 1 if config not available
+        setWeekId("week-1");
+      }
     }
+    loadCurrentWeek();
   }, []);
 
   // Load weekly scores
   useEffect(() => {
-    if (viewMode !== "weekly") return;
+    if (viewMode !== "weekly" || !weekId) return;
 
     async function loadWeekly() {
       if (!leagueId) return;
@@ -90,32 +102,45 @@ export const StandingsPage: React.FC = () => {
           userIds.push(doc.id);
         });
 
-        // Fetch user display names
-        const names: Record<string, string> = { ...userNames };
-        for (const uid of userIds) {
-          if (!names[uid]) {
-            try {
-              const userDoc = await getDoc(doc(db, "users", uid));
-              if (userDoc.exists()) {
-                names[uid] = userDoc.data().displayName || uid.slice(0, 8);
-              } else {
-                names[uid] = uid.slice(0, 8);
-              }
-            } catch {
-              names[uid] = uid.slice(0, 8);
+        // Fetch user display names - use functional update to avoid stale closure
+        setUserNames((prevNames) => {
+          const names: Record<string, string> = { ...prevNames };
+          // We'll fetch names in a separate effect or inline
+          return names;
+        });
+
+        // Fetch missing user names
+        const namesToFetch = userIds.filter(uid => !userNames[uid]);
+        const fetchedNames: Record<string, string> = {};
+
+        for (const uid of namesToFetch) {
+          try {
+            const userDoc = await getDoc(doc(db, "users", uid));
+            if (userDoc.exists()) {
+              fetchedNames[uid] = userDoc.data().displayName || uid.slice(0, 8);
+            } else {
+              fetchedNames[uid] = uid.slice(0, 8);
             }
+          } catch {
+            fetchedNames[uid] = uid.slice(0, 8);
           }
         }
-        setUserNames(names);
 
-        setWeeklyScores(rows.map(r => ({ ...r, displayName: names[r.userId] })));
-      } catch (err) {
-        console.error("Failed to load weekly scores:", err);
+        if (Object.keys(fetchedNames).length > 0) {
+          setUserNames(prev => ({ ...prev, ...fetchedNames }));
+        }
+
+        // Combine existing and fetched names for display
+        const allNames = { ...userNames, ...fetchedNames };
+        setWeeklyScores(rows.map(r => ({ ...r, displayName: allNames[r.userId] || r.userId.slice(0, 8) })));
+      } catch {
+        // Error loading weekly scores - silently fail
       } finally {
         setLoading(false);
       }
     }
     loadWeekly();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weekId, viewMode, leagueId]);
 
   // Load season standings
@@ -144,8 +169,8 @@ export const StandingsPage: React.FC = () => {
         });
 
         setSeasonStandings(rows);
-      } catch (err) {
-        console.error("Failed to load season standings:", err);
+      } catch {
+        // Error loading season standings - silently fail
       } finally {
         setLoading(false);
       }
@@ -154,7 +179,24 @@ export const StandingsPage: React.FC = () => {
   }, [viewMode, leagueId]);
 
   const getPayout = (rank: number): number => {
+    // Use league-specific payout structure if available, otherwise fall back to default
+    if (activeLeague?.payoutStructure && activeLeague.payoutStructure.length > 0) {
+      const entry = activeLeague.payoutStructure.find(p => p.rank === rank);
+      return entry?.amount || 0;
+    }
     return PAYOUT_STRUCTURE[rank] || 0;
+  };
+
+  // Calculate points behind leader for season standings
+  const leaderPoints = useMemo(() => {
+    if (seasonStandings.length === 0) return 0;
+    return seasonStandings[0].seasonTotalPoints;
+  }, [seasonStandings]);
+
+  const getPointsBehind = (points: number): string => {
+    const diff = leaderPoints - points;
+    if (diff === 0) return "—";
+    return `-${diff.toFixed(1)}`;
   };
 
   // Week options for select
@@ -168,6 +210,31 @@ export const StandingsPage: React.FC = () => {
     { id: "weekly", label: "Weekly Results" },
     { id: "season", label: "Season Standings" },
   ];
+
+  // Show message if no league selected
+  if (!leagueLoading && !leagueId) {
+    return (
+      <div className="text-center py-12">
+        <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-soft rounded-full mb-4">
+          <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+          </svg>
+        </div>
+        <h2 className="text-section-title font-bold text-text-primary mb-2">No League Selected</h2>
+        <p className="text-body text-text-secondary mb-6">
+          Join or create a league to view standings.
+        </p>
+        <div className="flex justify-center gap-3">
+          <Button variant="primary" onClick={() => window.location.href = "/create-league"}>
+            Create League
+          </Button>
+          <Button variant="secondary" onClick={() => window.location.href = "/join"}>
+            Join League
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -283,7 +350,7 @@ export const StandingsPage: React.FC = () => {
         <Card padding="none" className="overflow-hidden">
           {loading ? (
             <div className="p-4">
-              <TableSkeleton rows={8} columns={6} />
+              <TableSkeleton rows={8} columns={7} />
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -295,12 +362,14 @@ export const StandingsPage: React.FC = () => {
                     <th className="px-4 py-3 text-right text-caption font-semibold text-text-muted uppercase tracking-wide">Weeks</th>
                     <th className="px-4 py-3 text-right text-caption font-semibold text-text-muted uppercase tracking-wide">Best Week</th>
                     <th className="px-4 py-3 text-right text-caption font-semibold text-text-muted uppercase tracking-wide">Total Pts</th>
+                    <th className="px-4 py-3 text-right text-caption font-semibold text-text-muted uppercase tracking-wide">Behind</th>
                     <th className="px-4 py-3 text-right text-caption font-semibold text-text-muted uppercase tracking-wide">Payout</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {seasonStandings.map((s, idx) => {
                     const payout = getPayout(idx + 1);
+                    const pointsBehind = getPointsBehind(s.seasonTotalPoints);
                     return (
                       <tr
                         key={s.userId}
@@ -335,6 +404,11 @@ export const StandingsPage: React.FC = () => {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-right">
+                          <span className={`text-body-sm tabular-nums ${idx === 0 ? "text-text-subtle" : "text-error"}`}>
+                            {pointsBehind}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right">
                           {payout > 0 ? (
                             <Badge variant="success" size="md">${payout}</Badge>
                           ) : (
@@ -346,7 +420,7 @@ export const StandingsPage: React.FC = () => {
                   })}
                   {seasonStandings.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="px-4 py-12 text-center">
+                      <td colSpan={7} className="px-4 py-12 text-center">
                         <div className="text-text-muted">
                           <svg className="w-12 h-12 mx-auto mb-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />

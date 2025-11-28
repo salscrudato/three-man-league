@@ -4,6 +4,7 @@ import { onAuthStateChanged, type User } from "firebase/auth";
 import { collection, query, where, getDocs, doc, getDoc, Timestamp } from "firebase/firestore";
 import type { Player, Game, UserPicks, PlayerUsage, PlayerOption } from "../../types";
 import { Button, Badge, Card, Alert, Input, Select, PlayerListSkeleton } from "../../components";
+import { useLeague } from "../../league/LeagueContext";
 
 type PositionKey = "qb" | "rb" | "wr";
 
@@ -21,7 +22,28 @@ interface PicksState {
 
 const SEASON = "2025";
 
+// Regular season typically starts first week of September
+// This helps filter out playoff games from previous seasons that have overlapping week numbers
+const SEASON_START = new Date("2025-09-01T00:00:00Z");
+
 type SortOption = "fantasyPoints" | "kickoff" | "name";
+
+// Helper to parse kickoffTime robustly - handles Timestamp, Timestamp-like object, or string
+function parseKickoffTime(kickoffTime: unknown): Date {
+  if (kickoffTime instanceof Timestamp) {
+    return kickoffTime.toDate();
+  }
+  if (kickoffTime && typeof kickoffTime === "object" && "seconds" in kickoffTime) {
+    // Handle Timestamp-like object with seconds/nanoseconds (from Firestore)
+    const ts = kickoffTime as { seconds: number; nanoseconds?: number };
+    return new Date(ts.seconds * 1000);
+  }
+  if (typeof kickoffTime === "string") {
+    return new Date(kickoffTime);
+  }
+  // Fallback - shouldn't happen but treat as far future (unlocked)
+  return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+}
 
 // Position display configuration
 const positionConfig = {
@@ -31,48 +53,111 @@ const positionConfig = {
 };
 
 export const WeeklyPicksPage: React.FC = () => {
+  const { activeLeagueId, loading: leagueLoading } = useLeague();
   const [players, setPlayers] = useState<PlayerOption[]>([]);
   const [picks, setPicks] = useState<PicksState>({});
   const [savedPicks, setSavedPicks] = useState<PicksState>({});
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const [_usedPlayerIds, setUsedPlayerIds] = useState<Set<string>>(new Set());
+  const [usedPlayerIds, setUsedPlayerIds] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [weekId, setWeekId] = useState<string>("week-1");
+  const [weekId, setWeekId] = useState<string>("");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [sortBy, setSortBy] = useState<SortOption>("fantasyPoints");
+  const [hideUnavailable, setHideUnavailable] = useState<boolean>(false);
+  const [availableWeeks, setAvailableWeeks] = useState<number[]>([]);
 
-  const leagueId = import.meta.env.VITE_LEAGUE_ID;
+  // Use activeLeagueId from context
+  const leagueId = activeLeagueId;
+
+  // Count unavailable players for display
+  const unavailableCount = useMemo(() => {
+    return players.filter(p => p.isLocked || p.isUsed).length;
+  }, [players]);
 
   // Listen for auth state changes
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      console.log("[WeeklyPicksPage] Auth state changed:", user?.email);
       setCurrentUser(user);
     });
     return () => unsubscribe();
   }, []);
 
-  // Determine current week based on date
+  // Load available weeks (filter out completed weeks)
   useEffect(() => {
-    const now = new Date();
-    // NFL season typically starts first Thursday of September
-    // For 2025, approximate week calculation
-    const seasonStart = new Date("2025-09-04");
-    if (now >= seasonStart) {
-      const weekNum = Math.min(18, Math.max(1, Math.ceil((now.getTime() - seasonStart.getTime()) / (7 * 24 * 60 * 60 * 1000))));
-      setWeekId(`week-${weekNum}`);
+    async function loadAvailableWeeks() {
+      try {
+        // Load all games to determine which weeks are still active
+        const gamesRef = collection(db, "games");
+        const gamesSnap = await getDocs(gamesRef);
+
+        const now = Date.now();
+        const weekGames = new Map<number, { allPast: boolean; hasGames: boolean }>();
+
+        // Initialize all 18 weeks
+        for (let w = 1; w <= 18; w++) {
+          weekGames.set(w, { allPast: true, hasGames: false });
+        }
+
+        gamesSnap.forEach((doc) => {
+          const game = doc.data();
+          const weekNum = game.weekNumber;
+          if (!weekNum || weekNum < 1 || weekNum > 18) return;
+
+          const kickoffTime = parseKickoffTime(game.kickoffTime);
+
+          // Skip games that are before the season start (e.g., playoff games from previous season)
+          if (kickoffTime < SEASON_START) return;
+
+          const weekData = weekGames.get(weekNum)!;
+          weekData.hasGames = true;
+
+          // If any game in this week hasn't finished yet (kickoff + 4 hours buffer for game completion)
+          const gameEndEstimate = kickoffTime.getTime() + (4 * 60 * 60 * 1000);
+          if (gameEndEstimate > now) {
+            weekData.allPast = false;
+          }
+        });
+
+        // Filter to weeks that either have no games yet or have games not all in the past
+        const available = Array.from(weekGames.entries())
+          .filter(([, data]) => !data.hasGames || !data.allPast)
+          .map(([weekNum]) => weekNum)
+          .sort((a, b) => a - b);
+
+        setAvailableWeeks(available.length > 0 ? available : [1]);
+      } catch {
+        // Fallback to all weeks if there's an error
+        setAvailableWeeks(Array.from({ length: 18 }, (_, i) => i + 1));
+      }
     }
+    loadAvailableWeeks();
+  }, []);
+
+  // Determine current week from Firestore config (synced from ESPN)
+  useEffect(() => {
+    async function loadCurrentWeek() {
+      try {
+        const configRef = doc(db, "config", "season");
+        const configSnap = await getDoc(configRef);
+        if (configSnap.exists()) {
+          const data = configSnap.data();
+          const currentWeek = data.currentWeek || 1;
+          setWeekId(`week-${currentWeek}`);
+        }
+      } catch {
+        // Fallback to week 1 if config not available
+        setWeekId("week-1");
+      }
+    }
+    loadCurrentWeek();
   }, []);
 
   // Load players, games, and user's existing picks
   useEffect(() => {
     async function loadData() {
-      console.log("[WeeklyPicksPage] Loading data, user:", currentUser?.email);
-      if (!currentUser) {
-        console.log("[WeeklyPicksPage] No user, skipping load");
+      if (!currentUser || !weekId || !leagueId) {
         setLoading(false);
         return;
       }
@@ -80,24 +165,27 @@ export const WeeklyPicksPage: React.FC = () => {
       setLoading(true);
       try {
         const weekNumber = parseInt(weekId.replace("week-", ""));
-        console.log("[WeeklyPicksPage] Loading week:", weekNumber);
 
         // Load games for this week
         const gamesRef = collection(db, "games");
         const gamesQuery = query(gamesRef, where("weekNumber", "==", weekNumber));
         const gamesSnap = await getDocs(gamesQuery);
-        console.log("[WeeklyPicksPage] Games loaded:", gamesSnap.size);
 
         const gamesMap = new Map<string, Game>();
         gamesSnap.forEach((doc) => {
           const data = doc.data();
-          gamesMap.set(doc.id, { id: doc.id, ...data } as Game);
+          const game = { id: doc.id, ...data } as Game;
+
+          // Filter out games that are before the season start (e.g., playoff games from previous season)
+          const kickoff = parseKickoffTime(game.kickoffTime);
+          if (kickoff >= SEASON_START) {
+            gamesMap.set(doc.id, game);
+          }
         });
 
         // Load all players
         const playersRef = collection(db, "players");
         const playersSnap = await getDocs(playersRef);
-        console.log("[WeeklyPicksPage] Players loaded:", playersSnap.size);
 
         // Load user's player usage for the season
         const usageRef = collection(db, "users", currentUser.uid, "playerUsage");
@@ -141,6 +229,16 @@ export const WeeklyPicksPage: React.FC = () => {
         const oneHour = 60 * 60 * 1000;
         const playerOptions: PlayerOption[] = [];
 
+        // Debug: Log games data
+        console.log("[DEBUG] Games for week", weekId, ":", Array.from(gamesMap.entries()).map(([id, g]) => ({
+          id,
+          kickoffTime: g.kickoffTime,
+          parsed: parseKickoffTime(g.kickoffTime).toISOString(),
+          homeTeam: g.homeTeamName,
+          awayTeam: g.awayTeamName,
+        })));
+        console.log("[DEBUG] Current time:", new Date(now).toISOString());
+
         playersSnap.forEach((pDoc) => {
           const player = pDoc.data() as Player;
 
@@ -150,11 +248,20 @@ export const WeeklyPicksPage: React.FC = () => {
             const isAway = game.awayTeamId === player.teamId;
             if (!isHome && !isAway) return;
 
-            const kickoffTime = game.kickoffTime instanceof Timestamp
-              ? game.kickoffTime.toDate()
-              : new Date(game.kickoffTime as unknown as string);
-
+            const kickoffTime = parseKickoffTime(game.kickoffTime);
             const isLocked = now > kickoffTime.getTime() - oneHour;
+
+            // Debug: Log lock calculation for first few players
+            if (playerOptions.length < 3) {
+              console.log("[DEBUG] Player lock check:", {
+                player: player.name,
+                game: `${game.awayTeamName} @ ${game.homeTeamName}`,
+                kickoff: kickoffTime.toISOString(),
+                lockTime: new Date(kickoffTime.getTime() - oneHour).toISOString(),
+                now: new Date(now).toISOString(),
+                isLocked,
+              });
+            }
             const opponent = isHome ? `vs ${game.awayTeamName}` : `@ ${game.homeTeamName}`;
 
             // Check if player was used in a different week
@@ -186,11 +293,8 @@ export const WeeklyPicksPage: React.FC = () => {
 
         // Sort by kickoff time
         playerOptions.sort((a, b) => a.kickoff.getTime() - b.kickoff.getTime());
-        console.log("[WeeklyPicksPage] Player options built:", playerOptions.length);
-        console.log("[WeeklyPicksPage] Sample player:", playerOptions[0]);
         setPlayers(playerOptions);
-      } catch (err) {
-        console.error("[WeeklyPicksPage] Failed to load data:", err);
+      } catch {
         setMessage({ type: "error", text: "Failed to load players and games" });
       } finally {
         setLoading(false);
@@ -210,7 +314,7 @@ export const WeeklyPicksPage: React.FC = () => {
     }));
   };
 
-  // Filter players by search query (name or team)
+  // Filter players by search query (name or team) and availability
   const filteredPlayers = useMemo(() => {
     let result = players;
 
@@ -222,6 +326,11 @@ export const WeeklyPicksPage: React.FC = () => {
           p.name.toLowerCase().includes(q) ||
           p.team.toLowerCase().includes(q)
       );
+    }
+
+    // Apply availability filter
+    if (hideUnavailable) {
+      result = result.filter((p) => !p.isLocked && !p.isUsed);
     }
 
     // Apply sorting
@@ -242,7 +351,7 @@ export const WeeklyPicksPage: React.FC = () => {
     });
 
     return result;
-  }, [players, searchQuery, sortBy]);
+  }, [players, searchQuery, sortBy, hideUnavailable]);
 
   const groupedByPos = useMemo(() => ({
     qb: filteredPlayers.filter((p) => p.position === "QB"),
@@ -288,7 +397,7 @@ export const WeeklyPicksPage: React.FC = () => {
       } else {
         setMessage({ type: "error", text: data.error || "Failed to save picks" });
       }
-    } catch (err) {
+    } catch {
       setMessage({ type: "error", text: "Network error saving picks" });
     } finally {
       setSaving(false);
@@ -456,10 +565,10 @@ export const WeeklyPicksPage: React.FC = () => {
 
   const hasChanges = JSON.stringify(picks) !== JSON.stringify(savedPicks);
 
-  // Generate week options
-  const weekOptions = Array.from({ length: 18 }, (_, i) => ({
-    value: `week-${i + 1}`,
-    label: `Week ${i + 1}`,
+  // Generate week options from available weeks only
+  const weekOptions = availableWeeks.map((weekNum) => ({
+    value: `week-${weekNum}`,
+    label: `Week ${weekNum}`,
   }));
 
   const sortOptions = [
@@ -467,6 +576,31 @@ export const WeeklyPicksPage: React.FC = () => {
     { value: "kickoff", label: "Kickoff Time" },
     { value: "name", label: "Player Name" },
   ];
+
+  // Show message if no league selected
+  if (!leagueLoading && !leagueId) {
+    return (
+      <div className="text-center py-12">
+        <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-soft rounded-full mb-4">
+          <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+          </svg>
+        </div>
+        <h2 className="text-section-title font-bold text-text-primary mb-2">No League Selected</h2>
+        <p className="text-body text-text-secondary mb-6">
+          Join or create a league to start making picks.
+        </p>
+        <div className="flex justify-center gap-3">
+          <Button variant="primary" onClick={() => window.location.href = "/create-league"}>
+            Create League
+          </Button>
+          <Button variant="secondary" onClick={() => window.location.href = "/join"}>
+            Join League
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -505,42 +639,67 @@ export const WeeklyPicksPage: React.FC = () => {
         />
       )}
 
-      {/* Search and Sort controls */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <div className="flex-1">
-          <Input
-            type="text"
-            placeholder="Search by player name or team..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            leftIcon={
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-              </svg>
-            }
-            rightIcon={
-              searchQuery ? (
-                <button
-                  onClick={() => setSearchQuery("")}
-                  className="hover:text-text-primary transition-colors"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              ) : undefined
-            }
-          />
+      {/* Search, Filter, and Sort controls */}
+      <div className="flex flex-col gap-3">
+        <div className="flex flex-col sm:flex-row gap-3">
+          <div className="flex-1">
+            <Input
+              type="text"
+              placeholder="Search by player name or team..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              leftIcon={
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              }
+              rightIcon={
+                searchQuery ? (
+                  <button
+                    onClick={() => setSearchQuery("")}
+                    className="hover:text-text-primary transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                ) : undefined
+              }
+            />
+          </div>
+          <div className="flex items-center gap-4 shrink-0">
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={hideUnavailable}
+                onChange={(e) => setHideUnavailable(e.target.checked)}
+                className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
+              />
+              <span className="text-body-sm text-text-secondary">
+                Hide locked/used ({unavailableCount})
+              </span>
+            </label>
+            <div className="flex items-center gap-2">
+              <span className="text-caption text-text-muted">Sort:</span>
+              <Select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as SortOption)}
+                options={sortOptions}
+                className="w-32"
+              />
+            </div>
+          </div>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-caption text-text-muted">Sort by:</span>
-          <Select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value as SortOption)}
-            options={sortOptions}
-            className="w-36"
-          />
-        </div>
+
+        {/* Used players summary */}
+        {usedPlayerIds.size > 0 && (
+          <div className="flex items-center gap-2 text-caption text-text-muted">
+            <svg className="w-4 h-4 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span>You've used {usedPlayerIds.size} player{usedPlayerIds.size !== 1 ? 's' : ''} this season (one-and-done rule)</span>
+          </div>
+        )}
       </div>
 
       {/* Position columns */}

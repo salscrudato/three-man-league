@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { auth } from "../../firebase";
 import { Card, Button } from "../../components";
+import { FiTarget, FiActivity, FiAlertCircle } from "react-icons/fi";
+import { LuScale, LuChartBar } from "react-icons/lu";
 
 interface Message {
   role: "user" | "assistant";
@@ -9,11 +11,11 @@ interface Message {
 }
 
 const SUGGESTED_PROMPTS = [
-  { icon: "🎯", text: "Who are the best QB options this week?" },
-  { icon: "🏃", text: "Which RBs have favorable matchups?" },
-  { icon: "🏥", text: "Any injury concerns I should know about?" },
-  { icon: "⚖️", text: "Help me decide between two players" },
-  { icon: "📊", text: "What's the DraftKings scoring system?" },
+  { icon: FiTarget, text: "Who are the best QB options this week?" },
+  { icon: FiActivity, text: "Which RBs have favorable matchups?" },
+  { icon: FiAlertCircle, text: "Any injury concerns I should know about?" },
+  { icon: LuScale, text: "Help me decide between two players" },
+  { icon: LuChartBar, text: "What's the DraftKings scoring system?" },
 ];
 
 // Typing indicator component
@@ -74,7 +76,7 @@ export const ChatPage: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: "assistant",
-      content: "👋 Hi! I'm your fantasy football assistant. I can help with player analysis, matchup advice, injury updates, and lineup decisions. What would you like to know?",
+      content: "Hi! I'm your fantasy football assistant. I can help with player analysis, matchup advice, injury updates, and lineup decisions. What would you like to know?",
       timestamp: new Date(),
     },
   ]);
@@ -124,13 +126,12 @@ export const ChatPage: React.FC = () => {
           timestamp: new Date()
         },
       ]);
-    } catch (err) {
-      console.error("Chat error:", err);
+    } catch {
       setMessages((prev) => [
         ...prev,
         {
           role: "assistant",
-          content: "⚠️ Sorry, I'm having trouble connecting. Please try again in a moment.",
+          content: "Sorry, I'm having trouble connecting. Please try again in a moment.",
           timestamp: new Date()
         },
       ]);
@@ -200,16 +201,19 @@ export const ChatPage: React.FC = () => {
           <div className="px-4 py-3 border-t border-border bg-surface">
             <p className="text-caption text-text-muted mb-2">Suggested questions:</p>
             <div className="flex flex-wrap gap-2">
-              {SUGGESTED_PROMPTS.map((prompt, i) => (
-                <button
-                  key={i}
-                  onClick={() => sendMessage(prompt.text)}
-                  className="inline-flex items-center gap-1.5 text-caption px-3 py-1.5 rounded-full bg-subtle border border-border text-text-secondary hover:bg-primary-soft hover:border-primary/30 hover:text-primary transition-all duration-150"
-                >
-                  <span>{prompt.icon}</span>
-                  <span>{prompt.text}</span>
-                </button>
-              ))}
+              {SUGGESTED_PROMPTS.map((prompt, i) => {
+                const IconComponent = prompt.icon;
+                return (
+                  <button
+                    key={i}
+                    onClick={() => sendMessage(prompt.text)}
+                    className="inline-flex items-center gap-1.5 text-caption px-3 py-1.5 rounded-full bg-subtle border border-border text-text-secondary hover:bg-primary-soft hover:border-primary/30 hover:text-primary transition-all duration-150"
+                  >
+                    <IconComponent className="w-4 h-4" />
+                    <span>{prompt.text}</span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}

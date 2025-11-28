@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 
 type ToastType = "success" | "error" | "warning" | "info";
 
@@ -40,11 +40,9 @@ export const Toast: React.FC<ToastProps> = ({
   duration = 5000,
   visible,
 }) => {
-  const [show, setShow] = useState(visible);
   const styles = typeStyles[type];
 
   useEffect(() => {
-    setShow(visible);
     if (visible && duration > 0 && onClose) {
       const timer = setTimeout(() => {
         onClose();
@@ -53,7 +51,7 @@ export const Toast: React.FC<ToastProps> = ({
     }
   }, [visible, duration, onClose]);
 
-  if (!show) return null;
+  if (!visible) return null;
 
   return (
     <div

@@ -1,5 +1,8 @@
 import React, { useState } from "react";
 import { NavLink, useLocation } from "react-router-dom";
+import { useAuth } from "../auth/AuthContext";
+import { UserMenu } from "../auth/AuthGate";
+import { LeagueSwitcher } from "../league/LeagueSwitcher";
 
 // Icons for navigation
 const PicksIcon = () => (
@@ -48,6 +51,7 @@ const navItems = [
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const { user } = useAuth();
 
   // Close mobile menu on route change
   React.useEffect(() => {
@@ -60,15 +64,19 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
       <header className="sticky top-0 z-40 bg-surface/95 backdrop-blur-sm border-b border-border">
         <div className="max-w-container mx-auto px-4 sm:px-6">
           <div className="flex items-center justify-between h-16">
-            {/* Logo */}
-            <NavLink to="/" className="flex items-center gap-2 group">
-              <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-                <span className="text-white font-bold text-sm">3</span>
-              </div>
-              <span className="text-lg font-semibold text-text-primary tracking-tight">
-                three<span className="text-primary">man</span>league
-              </span>
-            </NavLink>
+            {/* Logo and League Switcher */}
+            <div className="flex items-center gap-4">
+              <NavLink to="/" className="flex items-center gap-2 group">
+                <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
+                  <span className="text-white font-bold text-sm">3</span>
+                </div>
+                <span className="hidden sm:inline text-lg font-semibold text-text-primary tracking-tight">
+                  three<span className="text-primary">man</span>league
+                </span>
+              </NavLink>
+              <div className="hidden sm:block h-6 w-px bg-border" />
+              <LeagueSwitcher />
+            </div>
 
             {/* Desktop Navigation */}
             <nav className="hidden md:flex items-center gap-1">
@@ -89,6 +97,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                 </NavLink>
               ))}
             </nav>
+
+            {/* User menu (desktop) */}
+            <div className="hidden md:block">
+              {user && <UserMenu user={user} />}
+            </div>
 
             {/* Mobile menu button */}
             <button
@@ -121,6 +134,30 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                   <span>{item.label}</span>
                 </NavLink>
               ))}
+              {/* Mobile user info */}
+              {user && (
+                <div className="mt-3 pt-3 border-t border-border">
+                  <div className="flex items-center gap-3 px-4 py-2">
+                    {user.photoURL ? (
+                      <img
+                        src={user.photoURL}
+                        alt={user.displayName || "User"}
+                        className="w-8 h-8 rounded-full object-cover border border-border"
+                      />
+                    ) : (
+                      <div className="w-8 h-8 rounded-full bg-primary-soft text-primary flex items-center justify-center text-caption font-semibold">
+                        {user.displayName?.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) || "U"}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-body-sm font-medium text-text-primary truncate">
+                        {user.displayName || "Player"}
+                      </p>
+                      <p className="text-caption text-text-muted truncate">{user.email}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </nav>
           </div>
         )}

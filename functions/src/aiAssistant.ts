@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { onRequest } from "firebase-functions/v2/https";
 import type { Response } from "express";
-import { db, SEASON } from "./config.js";
+import { db, SEASON, OPENAI_MODEL } from "./config.js";
 
 // Lazy initialization of OpenAI client to avoid errors during deployment
 let _client: OpenAI | null = null;
@@ -71,26 +71,26 @@ export const aiChat = onRequest(async (req, res) => {
     const systemPrompt = `You are a helpful fantasy football assistant for "Three Man League" - a one-and-done fantasy game.
 
 GAME RULES:
-• Each week, pick exactly 1 QB, 1 RB, 1 WR (no TEs allowed in WR slot)
-• ONE-AND-DONE: Once you use a player, you cannot use them again all season. Repeat = 0 points for that slot.
-• Scoring: DraftKings NFL PPR scoring
+- Each week, pick exactly 1 QB, 1 RB, 1 WR (no TEs allowed in WR slot)
+- ONE-AND-DONE: Once you use a player, you cannot use them again all season. Repeat = 0 points for that slot.
+- Scoring: DraftKings NFL PPR scoring
   - Passing: 4 pts/TD, 0.04 pts/yard, +3 bonus at 300+ yards, -1 per INT
   - Rushing: 6 pts/TD, 0.1 pts/yard, +3 bonus at 100+ yards
   - Receiving: 6 pts/TD, 0.1 pts/yard, +3 bonus at 100+ yards, 1 pt/reception (PPR)
   - Turnovers: -1 per fumble lost
-• Picks lock 1 hour before each player's game kickoff
-• Season: 18 weeks, payout to top 7 finishers
+- Picks lock 1 hour before each player's game kickoff
+- Season: 18 weeks, payout to top 7 finishers
 
 YOUR ROLE:
-• Give strategic advice considering matchups, usage, and the one-and-done constraint
-• Help users save elite players for favorable matchups later in the season
-• Consider bye weeks and playoff schedules when recommending players
-• Be concise but informative
+- Give strategic advice considering matchups, usage, and the one-and-done constraint
+- Help users save elite players for favorable matchups later in the season
+- Consider bye weeks and playoff schedules when recommending players
+- Be concise but informative
 
 ${usedPlayerNames.length > 0 ? `USER'S ALREADY-USED PLAYERS (cannot recommend these): ${usedPlayerNames.join(", ")}` : "User has not used any players yet this season."}`;
 
     const completion = await getOpenAIClient().chat.completions.create({
-      model: "gpt-4o-mini",
+      model: OPENAI_MODEL,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: message },

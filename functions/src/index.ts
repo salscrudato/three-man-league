@@ -9,6 +9,7 @@ import {
   fetchLeagueTeams,
   fetchPlayerSeasonStats,
   calculateFantasyPoints,
+  getCurrentWeek,
   type SportsPlayer
 } from "./sportsApi.js";
 import { calculateDraftKingsPoints, mapSportsDbToStats } from "./scoring.js";
@@ -17,6 +18,18 @@ import type { EligiblePosition, Position, SeasonStats } from "./types.js";
 
 // Re-export AI chat function
 export { aiChat } from "./aiAssistant.js";
+
+// Re-export league management functions
+export {
+  createLeague,
+  joinLeague,
+  getUserLeagues,
+  getLeagueDetails,
+  updateLeagueSettings,
+  regenerateJoinCode,
+  leaveOrRemoveMember,
+  setActiveLeague,
+} from "./leagueManagement.js";
 
 // ===== Helper: Map position string to our Position type =====
 function normalizePosition(pos: string): Position | null {
@@ -87,12 +100,18 @@ export const syncSchedule = onRequest(async (req, res) => {
       }
 
       await batch.commit();
-      console.log(`Synced batch ${Math.floor(i / BATCH_SIZE) + 1}, total: ${count} games`);
     }
 
-    res.status(200).send({ ok: true, count });
+    // Update current week in config document
+    const currentWeek = await getCurrentWeek();
+    await db.collection("config").doc("season").set({
+      season: SEASON,
+      currentWeek,
+      lastUpdated: new Date(),
+    }, { merge: true });
+
+    res.status(200).send({ ok: true, count, currentWeek });
   } catch (err: unknown) {
-    console.error(err);
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
     res.status(500).send({ error: errorMessage });
   }
@@ -554,6 +573,22 @@ export const submitPicks = onRequest(async (req, res) => {
         continue;
       }
 
+      // Check if player was already used in a different week (one-and-done rule)
+      const usageRef = db
+        .collection("users")
+        .doc(userId)
+        .collection("playerUsage")
+        .doc(`${SEASON}_${newPlayerId}`);
+      const usageSnap = await usageRef.get();
+
+      if (usageSnap.exists) {
+        const usageData = usageSnap.data();
+        if (usageData?.firstUsedWeek !== weekId) {
+          skipped.push(`${pos.toUpperCase()}: player already used in ${usageData?.firstUsedWeek}`);
+          continue;
+        }
+      }
+
       // Enforce kickoff - 1 hour rule
       const gameDoc = await db.collection("games").doc(newGameId).get();
       const game = gameDoc.data();
@@ -574,6 +609,15 @@ export const submitPicks = onRequest(async (req, res) => {
       updates[playerIdKey] = newPlayerId;
       updates[gameIdKey] = newGameId;
       accepted.push(pos.toUpperCase());
+
+      // Write player usage immediately when pick is saved (if not already recorded for this week)
+      if (!usageSnap.exists) {
+        await usageRef.set({
+          season: SEASON,
+          playerId: newPlayerId,
+          firstUsedWeek: weekId,
+        });
+      }
     }
 
     await pickRef.set(

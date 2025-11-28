@@ -10,7 +10,7 @@ export const db = admin.firestore();
 export const SEASON = "2025";
 
 // OpenAI model for AI assistant
-export const OPENAI_MODEL = "gpt-4.1-mini";
+export const OPENAI_MODEL = "gpt-4o-mini";
 
 // ESPN API endpoints (no API key required - free and public)
 export const ESPN_SITE_API = "https://site.api.espn.com/apis/site/v2/sports/football/nfl";

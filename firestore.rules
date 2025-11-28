@@ -12,6 +12,19 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    // Helper to check if user is a member of a league
+    function isLeagueMember(leagueId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/leagues/$(leagueId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/leagues/$(leagueId)/members/$(request.auth.uid)).data.isActive == true;
+    }
+
+    // Helper to check if user is the league owner
+    function isLeagueOwner(leagueId) {
+      return isSignedIn() &&
+        get(/databases/$(database)/documents/leagues/$(leagueId)).data.ownerId == request.auth.uid;
+    }
+
     // ===== Users =====
     match /users/{userId} {
       allow read: if isSignedIn();
@@ -26,36 +39,39 @@ service cloud.firestore {
 
     // ===== Leagues =====
     match /leagues/{leagueId} {
+      // Anyone signed in can read league info (for join flow)
       allow read: if isSignedIn();
-      allow write: if false; // Only admin/backend can manage leagues
+      // Only backend can create/update leagues
+      allow write: if false;
 
-      // League members
-      match /members/{userId} {
+      // League members - readable by all signed in users, writable only by backend
+      match /members/{memberId} {
         allow read: if isSignedIn();
-        allow write: if isOwner(userId); // Users can join/leave
+        // Members can only be added/updated via Cloud Functions for security
+        allow write: if false;
       }
 
       // Weeks
       match /weeks/{weekId} {
-        allow read: if isSignedIn();
+        allow read: if isLeagueMember(leagueId);
         allow write: if false; // Only backend can manage weeks
 
-        // Picks - users can read all, write only their own
+        // Picks - league members can read all, write only their own
         match /picks/{userId} {
-          allow read: if isSignedIn();
-          allow write: if isOwner(userId);
+          allow read: if isLeagueMember(leagueId);
+          allow write: if isOwner(userId) && isLeagueMember(leagueId);
         }
 
-        // Scores - read only, backend writes
+        // Scores - read only for league members, backend writes
         match /scores/{userId} {
-          allow read: if isSignedIn();
+          allow read: if isLeagueMember(leagueId);
           allow write: if false;
         }
       }
 
-      // Season standings - read only
+      // Season standings - read only for league members
       match /seasonStandings/{userId} {
-        allow read: if isSignedIn();
+        allow read: if isLeagueMember(leagueId);
         allow write: if false;
       }
     }
@@ -70,6 +86,12 @@ service cloud.firestore {
     match /games/{gameId} {
       allow read: if true; // Public for schedule display
       allow write: if false; // Only backend can sync schedule
+    }
+
+    // ===== Config =====
+    match /config/{docId} {
+      allow read: if true; // Public for season config
+      allow write: if false; // Only backend can update config
     }
   }
 }

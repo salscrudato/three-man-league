@@ -2,6 +2,9 @@ import React, { useEffect, useState, useRef } from "react";
 import { auth, signInWithGoogle, logout } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import type { User } from "firebase/auth";
+import { FiCalendar } from "react-icons/fi";
+import { LuTrophy, LuBot } from "react-icons/lu";
+import { AuthContext } from "./AuthContext";
 
 // Google icon SVG
 const GoogleIcon = () => (
@@ -164,16 +167,16 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
             {/* Features preview */}
             <div className="mt-8 pt-6 border-t border-border">
               <div className="grid grid-cols-3 gap-4 text-center">
-                <div>
-                  <div className="text-2xl mb-1">🏈</div>
+                <div className="flex flex-col items-center">
+                  <FiCalendar className="w-6 h-6 text-primary mb-1" />
                   <p className="text-caption text-text-muted">Weekly Picks</p>
                 </div>
-                <div>
-                  <div className="text-2xl mb-1">🏆</div>
+                <div className="flex flex-col items-center">
+                  <LuTrophy className="w-6 h-6 text-primary mb-1" />
                   <p className="text-caption text-text-muted">$3,450 Pot</p>
                 </div>
-                <div>
-                  <div className="text-2xl mb-1">🤖</div>
+                <div className="flex flex-col items-center">
+                  <LuBot className="w-6 h-6 text-primary mb-1" />
                   <p className="text-caption text-text-muted">AI Advisor</p>
                 </div>
               </div>
@@ -189,15 +192,11 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
     );
   }
 
-  // Authenticated state - inject user menu into header
+  // Authenticated state - provide user context to children
   return (
-    <>
-      {/* Fixed user menu in header area */}
-      <div className="fixed top-3 right-4 sm:right-6 z-50">
-        <UserMenu user={user} />
-      </div>
+    <AuthContext.Provider value={{ user, loading }}>
       {children}
-    </>
+    </AuthContext.Provider>
   );
 };
 
