@@ -154,6 +154,14 @@ export const WeeklyPicksPage: React.FC = () => {
     loadCurrentWeek();
   }, []);
 
+  // Reset players when week or league changes to prevent stale data
+  useEffect(() => {
+    setPlayers([]);
+    setUsedPlayerIds(new Set());
+    setPicks({});
+    setSavedPicks({});
+  }, [weekId, leagueId]);
+
   // Load players, games, and user's existing picks
   useEffect(() => {
     async function loadData() {
@@ -187,9 +195,13 @@ export const WeeklyPicksPage: React.FC = () => {
         const playersRef = collection(db, "players");
         const playersSnap = await getDocs(playersRef);
 
-        // Load user's player usage for the season
+        // Load user's player usage for this season AND league
         const usageRef = collection(db, "users", currentUser.uid, "playerUsage");
-        const usageQuery = query(usageRef, where("season", "==", SEASON));
+        const usageQuery = query(
+          usageRef,
+          where("season", "==", SEASON),
+          where("leagueId", "==", leagueId)
+        );
         const usageSnap = await getDocs(usageQuery);
 
         const usedIds = new Set<string>();
@@ -229,16 +241,6 @@ export const WeeklyPicksPage: React.FC = () => {
         const oneHour = 60 * 60 * 1000;
         const playerOptions: PlayerOption[] = [];
 
-        // Debug: Log games data
-        console.log("[DEBUG] Games for week", weekId, ":", Array.from(gamesMap.entries()).map(([id, g]) => ({
-          id,
-          kickoffTime: g.kickoffTime,
-          parsed: parseKickoffTime(g.kickoffTime).toISOString(),
-          homeTeam: g.homeTeamName,
-          awayTeam: g.awayTeamName,
-        })));
-        console.log("[DEBUG] Current time:", new Date(now).toISOString());
-
         playersSnap.forEach((pDoc) => {
           const player = pDoc.data() as Player;
 
@@ -250,18 +252,6 @@ export const WeeklyPicksPage: React.FC = () => {
 
             const kickoffTime = parseKickoffTime(game.kickoffTime);
             const isLocked = now > kickoffTime.getTime() - oneHour;
-
-            // Debug: Log lock calculation for first few players
-            if (playerOptions.length < 3) {
-              console.log("[DEBUG] Player lock check:", {
-                player: player.name,
-                game: `${game.awayTeamName} @ ${game.homeTeamName}`,
-                kickoff: kickoffTime.toISOString(),
-                lockTime: new Date(kickoffTime.getTime() - oneHour).toISOString(),
-                now: new Date(now).toISOString(),
-                isLocked,
-              });
-            }
             const opponent = isHome ? `vs ${game.awayTeamName}` : `@ ${game.homeTeamName}`;
 
             // Check if player was used in a different week

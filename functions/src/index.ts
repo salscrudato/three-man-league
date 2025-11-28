@@ -1,5 +1,4 @@
 import { onRequest } from "firebase-functions/v2/https";
-import type { Response } from "express";
 import { onSchedule } from "firebase-functions/v2/scheduler";
 import { db, SEASON } from "./config.js";
 import {
@@ -13,6 +12,7 @@ import {
   type SportsPlayer
 } from "./sportsApi.js";
 import { calculateDraftKingsPoints, mapSportsDbToStats } from "./scoring.js";
+import { setCors } from "./utils/http.js";
 import * as admin from "firebase-admin";
 import type { EligiblePosition, Position, SeasonStats } from "./types.js";
 
@@ -30,6 +30,15 @@ export {
   leaveOrRemoveMember,
   setActiveLeague,
 } from "./leagueManagement.js";
+
+// Re-export backfill functions for mid-season setup
+export {
+  enableBackfill,
+  getBackfillStatus,
+  backfillWeekForLeague,
+  completeBackfill,
+  getBackfillWeekScores,
+} from "./backfill.js";
 
 // ===== Helper: Map position string to our Position type =====
 function normalizePosition(pos: string): Position | null {
@@ -49,12 +58,7 @@ function getEligiblePositions(pos: Position): EligiblePosition[] {
   return [];
 }
 
-// ===== CORS handler for all endpoints =====
-function setCors(res: Response) {
-  res.set("Access-Control-Allow-Origin", "*");
-  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-}
+
 
 /**
  * Sync NFL schedule into Firestore.

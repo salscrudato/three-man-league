@@ -269,3 +269,96 @@ export const PAYOUT_STRUCTURE: Record<number, number> = {
 export const TOTAL_POT = 3450;
 export const ENTRY_FEE = 50;
 
+// ===== Backfill Types =====
+export type BackfillStatus = "not_started" | "in_progress" | "completed" | "error";
+
+/**
+ * Extended League interface with backfill fields
+ */
+export interface LeagueBackfillConfig {
+  backfillEnabled?: boolean;
+  backfillFromWeek?: number;
+  backfillToWeek?: number;
+  backfillStatus?: BackfillStatus;
+  backfillCompletedAt?: Date | Timestamp;
+  backfillCompletedBy?: string;
+}
+
+/**
+ * Extended Week interface with backfill tracking
+ */
+export interface WeekBackfillInfo {
+  backfillStatus?: "not_backfilled" | "backfilled" | "error";
+  backfilledAt?: Date | Timestamp;
+  backfilledBy?: string;
+  isBackfilled?: boolean;
+}
+
+/**
+ * Member pick for backfill - one member's picks for a week
+ */
+export interface BackfillMemberPick {
+  userId: string;
+  qbPlayerId?: string;
+  rbPlayerId?: string;
+  wrPlayerId?: string;
+  qbPointsOverride?: number;
+  rbPointsOverride?: number;
+  wrPointsOverride?: number;
+}
+
+/**
+ * Request payload for backfilling a single week
+ */
+export interface BackfillWeekRequest {
+  leagueId: string;
+  weekNumber: number;
+  memberPicks: BackfillMemberPick[];
+}
+
+/**
+ * Response from backfill operation
+ */
+export interface BackfillWeekResponse {
+  ok: boolean;
+  weekNumber: number;
+  results: BackfillMemberResult[];
+  error?: string;
+}
+
+export interface BackfillMemberResult {
+  userId: string;
+  displayName?: string;
+  qbPoints: number;
+  rbPoints: number;
+  wrPoints: number;
+  totalPoints: number;
+  qbPlayerName?: string;
+  rbPlayerName?: string;
+  wrPlayerName?: string;
+  errors?: string[];
+  warnings?: string[];
+}
+
+/**
+ * Status response for getting backfill progress
+ */
+export interface BackfillStatusResponse {
+  ok: boolean;
+  leagueId: string;
+  backfillEnabled: boolean;
+  backfillFromWeek?: number;
+  backfillToWeek?: number;
+  overallStatus: BackfillStatus;
+  weeks: BackfillWeekStatus[];
+}
+
+export interface BackfillWeekStatus {
+  weekNumber: number;
+  weekId: string;
+  status: "not_backfilled" | "backfilled" | "error";
+  memberCount: number;
+  scores?: BackfillMemberResult[];
+  backfilledAt?: string;
+  backfilledBy?: string;
+}

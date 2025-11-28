@@ -16,6 +16,18 @@ const proxyFn = (name: string) => ({
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Split Firebase into its own chunk
+          firebase: ['firebase/app', 'firebase/auth', 'firebase/firestore'],
+          // Split React and React Router
+          react: ['react', 'react-dom', 'react-router-dom'],
+        },
+      },
+    },
+  },
   server: {
     proxy: {
       // Existing functions

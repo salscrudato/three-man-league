@@ -1,13 +1,6 @@
 {
   "indexes": [
     {
-      "collectionGroup": "games",
-      "queryScope": "COLLECTION",
-      "fields": [
-        { "fieldPath": "kickoffTime", "order": "ASCENDING" }
-      ]
-    },
-    {
       "collectionGroup": "leagues",
       "queryScope": "COLLECTION",
       "fields": [

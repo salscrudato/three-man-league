@@ -1,13 +1,12 @@
 /**
  * League Management Cloud Functions
- * 
+ *
  * Handles league creation, joining, settings management, and member operations.
  */
 
 import { onRequest } from "firebase-functions/v2/https";
-import type { Response } from "express";
-import * as admin from "firebase-admin";
 import { db, SEASON } from "./config.js";
+import { setCors, verifyAuth } from "./utils/http.js";
 import type {
   CreateLeagueRequest,
   CreateLeagueResponse,
@@ -18,25 +17,6 @@ import type {
   LeagueStatus,
   MemberRole,
 } from "./types.js";
-
-// CORS handler
-function setCors(res: Response) {
-  res.set("Access-Control-Allow-Origin", "*");
-  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
-}
-
-// Verify Firebase Auth token and return userId
-async function verifyAuth(authHeader: string | undefined): Promise<string | null> {
-  if (!authHeader?.startsWith("Bearer ")) return null;
-  try {
-    const token = authHeader.slice(7);
-    const decoded = await admin.auth().verifyIdToken(token);
-    return decoded.uid;
-  } catch {
-    return null;
-  }
-}
 
 // Generate a unique join code (6 uppercase alphanumeric characters)
 function generateJoinCode(): string {

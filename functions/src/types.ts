@@ -250,3 +250,105 @@ export const PAYOUT_STRUCTURE: Record<number, number> = {
 export const TOTAL_POT = 3450;
 export const ENTRY_FEE = 50;
 
+// ===== Backfill Types =====
+export type BackfillStatus = "not_started" | "in_progress" | "completed" | "error";
+
+/**
+ * Extended League interface with backfill fields
+ */
+export interface LeagueBackfillConfig {
+  backfillEnabled?: boolean;
+  backfillFromWeek?: number; // First week to backfill (e.g., 1)
+  backfillToWeek?: number;   // Last week to backfill (e.g., 12)
+  backfillStatus?: BackfillStatus;
+  backfillCompletedAt?: Date | Timestamp;
+  backfillCompletedBy?: string; // userId who completed backfill
+}
+
+/**
+ * Extended Week interface with backfill tracking
+ */
+export interface WeekBackfillInfo {
+  backfillStatus?: "not_backfilled" | "backfilled" | "error";
+  backfilledAt?: Date | Timestamp;
+  backfilledBy?: string; // userId who backfilled
+  isBackfilled?: boolean;
+}
+
+/**
+ * Member pick for backfill - one member's picks for a week
+ */
+export interface BackfillMemberPick {
+  userId: string;
+  qbPlayerId?: string;
+  rbPlayerId?: string;
+  wrPlayerId?: string;
+  // Optional score overrides (if admin needs to manually adjust)
+  qbPointsOverride?: number;
+  rbPointsOverride?: number;
+  wrPointsOverride?: number;
+}
+
+/**
+ * Request payload for backfilling a single week
+ */
+export interface BackfillWeekRequest {
+  leagueId: string;
+  weekNumber: number;
+  memberPicks: BackfillMemberPick[];
+}
+
+/**
+ * Response from backfill operation
+ */
+export interface BackfillWeekResponse {
+  ok: boolean;
+  weekNumber: number;
+  results: {
+    userId: string;
+    displayName?: string;
+    qbPoints: number;
+    rbPoints: number;
+    wrPoints: number;
+    totalPoints: number;
+    qbPlayerName?: string;
+    rbPlayerName?: string;
+    wrPlayerName?: string;
+    errors?: string[];
+    warnings?: string[];
+  }[];
+  error?: string;
+}
+
+/**
+ * Status request for getting backfill progress
+ */
+export interface BackfillStatusResponse {
+  ok: boolean;
+  leagueId: string;
+  backfillEnabled: boolean;
+  backfillFromWeek?: number;
+  backfillToWeek?: number;
+  overallStatus: BackfillStatus;
+  weeks: {
+    weekNumber: number;
+    weekId: string;
+    status: "not_backfilled" | "backfilled" | "error";
+    memberCount: number;
+    backfilledAt?: string;
+    backfilledBy?: string;
+  }[];
+}
+
+/**
+ * Extended UserScore with backfill metadata
+ */
+export interface BackfilledUserScore extends UserScore {
+  isBackfilled?: boolean;
+  computedTotalPoints?: number;      // Original computed score
+  adjustedTotalPoints?: number;       // Final score after override
+  adjustmentReason?: string;          // Reason for manual adjustment
+  backfilledAt?: Date | Timestamp;
+  backfilledBy?: string;
+}
+

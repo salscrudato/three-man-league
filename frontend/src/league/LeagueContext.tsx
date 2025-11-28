@@ -1,14 +1,18 @@
 /**
  * League Context - Manages active league state across the app
+ *
+ * Note: This file exports both a context and a provider component, which is a standard
+ * React pattern. The eslint-disable is needed because React Compiler's fast refresh
+ * rule prefers files to only export components, but context providers are an exception.
  */
 
+/* eslint-disable react-refresh/only-export-components */
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../auth/AuthContext";
+import { apiGet } from "../lib/api";
 import type { League, LeagueSummary, MemberRole } from "../types";
-
-const API_BASE = import.meta.env.VITE_FUNCTIONS_URL || "";
 
 export interface LeagueContextType {
   // Current active league
@@ -29,7 +33,7 @@ export interface LeagueContextType {
   refreshActiveLeague: () => Promise<void>;
 }
 
-const LeagueContext = createContext<LeagueContextType>({
+export const LeagueContext = createContext<LeagueContextType>({
   activeLeague: null,
   activeLeagueId: null,
   userRole: null,
@@ -62,18 +66,8 @@ export const LeagueProvider: React.FC<{ children: React.ReactNode }> = ({ childr
 
     try {
       setLoadingLeagues(true);
-      const token = await user.getIdToken();
-      const res = await fetch(`${API_BASE}/getUserLeagues`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
-      if (res.ok) {
-        const data = await res.json();
-        setUserLeagues(data.leagues || []);
-      } else {
-        console.error("Failed to fetch leagues:", await res.text());
-        setUserLeagues([]);
-      }
+      const data = await apiGet<{ leagues: LeagueSummary[] }>("/getUserLeagues", user);
+      setUserLeagues(data.leagues || []);
     } catch (err) {
       console.error("Error fetching leagues:", err);
       setUserLeagues([]);

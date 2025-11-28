@@ -6,9 +6,8 @@ import React, { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { useLeague } from "../../league/LeagueContext";
+import { apiPost, getErrorMessage } from "../../lib/api";
 import { LuArrowLeft, LuCheck, LuUsers } from "react-icons/lu";
-
-const API_BASE = import.meta.env.VITE_FUNCTIONS_URL || "";
 
 export const JoinLeaguePage: React.FC = () => {
   const navigate = useNavigate();
@@ -37,29 +36,18 @@ export const JoinLeaguePage: React.FC = () => {
     setError(null);
     
     try {
-      const token = await user.getIdToken();
-      const res = await fetch(`${API_BASE}/joinLeague`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ joinCode: joinCode.trim().toUpperCase() }),
-      });
-      
-      const data = await res.json();
-      
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to join league");
-      }
-      
+      const data = await apiPost<{
+        leagueName: string;
+        leagueId: string;
+      }>("/joinLeague", { joinCode: joinCode.trim().toUpperCase() }, user);
+
       setSuccess({ leagueName: data.leagueName, leagueId: data.leagueId });
-      
+
       // Refresh leagues and set as active
       await refreshLeagues();
       await setActiveLeague(data.leagueId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to join league");
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }

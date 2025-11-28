@@ -6,12 +6,11 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { useLeague } from "../../league/LeagueContext";
-import { LuArrowLeft, LuCopy, LuCheck, LuRefreshCw, LuUsers, LuSettings, LuDollarSign, LuLock, LuLockOpen } from "react-icons/lu";
+import { apiPost, getErrorMessage } from "../../lib/api";
+import { LuArrowLeft, LuCopy, LuCheck, LuRefreshCw, LuUsers, LuSettings, LuDollarSign, LuLock, LuLockOpen, LuCalendar, LuChevronRight } from "react-icons/lu";
 import type { LeagueMember } from "../../types";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../../firebase";
-
-const API_BASE = import.meta.env.VITE_FUNCTIONS_URL || "";
 
 export const LeagueSettingsPage: React.FC = () => {
   const navigate = useNavigate();
@@ -108,31 +107,17 @@ export const LeagueSettingsPage: React.FC = () => {
 
   const handleRegenerateCode = async () => {
     if (!user || !activeLeagueId) return;
-    
+
     setRegenerating(true);
     setError(null);
-    
+
     try {
-      const token = await user.getIdToken();
-      const res = await fetch(`${API_BASE}/regenerateJoinCode`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ leagueId: activeLeagueId }),
-      });
-      
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to regenerate code");
-      }
-      
+      await apiPost("/regenerateJoinCode", { leagueId: activeLeagueId }, user);
       await refreshActiveLeague();
       setSuccessMessage("Join code regenerated!");
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to regenerate code");
+      setError(getErrorMessage(err));
     } finally {
       setRegenerating(false);
     }
@@ -143,32 +128,18 @@ export const LeagueSettingsPage: React.FC = () => {
       setEditingName(false);
       return;
     }
-    
+
     setSaving(true);
     setError(null);
-    
+
     try {
-      const token = await user.getIdToken();
-      const res = await fetch(`${API_BASE}/updateLeagueSettings`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ leagueId: activeLeagueId, name: newName.trim() }),
-      });
-      
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to update name");
-      }
-      
+      await apiPost("/updateLeagueSettings", { leagueId: activeLeagueId, name: newName.trim() }, user);
       await refreshActiveLeague();
       setEditingName(false);
       setSuccessMessage("League name updated!");
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update name");
+      setError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -181,27 +152,13 @@ export const LeagueSettingsPage: React.FC = () => {
     setError(null);
 
     try {
-      const token = await user.getIdToken();
-      const res = await fetch(`${API_BASE}/updateLeagueSettings`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ leagueId: activeLeagueId, membershipLocked: !membershipLocked }),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.error || "Failed to update setting");
-      }
-
+      await apiPost("/updateLeagueSettings", { leagueId: activeLeagueId, membershipLocked: !membershipLocked }, user);
       setMembershipLocked(!membershipLocked);
       await refreshActiveLeague();
       setSuccessMessage(membershipLocked ? "League is now open for new members" : "League is now locked");
       setTimeout(() => setSuccessMessage(null), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update setting");
+      setError(getErrorMessage(err));
     } finally {
       setSaving(false);
     }
@@ -412,6 +369,34 @@ export const LeagueSettingsPage: React.FC = () => {
               <p className="font-medium text-text-primary capitalize">{activeLeague.status}</p>
             </div>
           </div>
+        </div>
+
+        {/* Mid-Season Setup */}
+        <div className="bg-surface rounded-card border border-border p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <LuCalendar className="w-5 h-5 text-primary" />
+            <h2 className="text-body font-semibold text-text-primary">Mid-Season Setup</h2>
+          </div>
+
+          <p className="text-body-sm text-text-secondary mb-4">
+            Import historical picks and scores from a spreadsheet to continue an existing league mid-season.
+          </p>
+
+          <button
+            onClick={() => navigate("/admin/backfill")}
+            className="w-full flex items-center justify-between p-4 bg-subtle rounded-button hover:bg-border transition-colors"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-primary-soft text-primary flex items-center justify-center">
+                <LuCalendar className="w-5 h-5" />
+              </div>
+              <div className="text-left">
+                <p className="text-body font-medium text-text-primary">Backfill Wizard</p>
+                <p className="text-caption text-text-muted">Enter historical picks and compute scores</p>
+              </div>
+            </div>
+            <LuChevronRight className="w-5 h-5 text-text-muted" />
+          </button>
         </div>
       </div>
     </div>

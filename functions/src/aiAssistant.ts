@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { onRequest } from "firebase-functions/v2/https";
-import type { Response } from "express";
 import { db, SEASON, OPENAI_MODEL } from "./config.js";
+import { setCors } from "./utils/http.js";
 
 // Lazy initialization of OpenAI client to avoid errors during deployment
 let _client: OpenAI | null = null;
@@ -14,13 +14,6 @@ function getOpenAIClient(): OpenAI {
     _client = new OpenAI({ apiKey });
   }
   return _client;
-}
-
-// CORS handler
-function setCors(res: Response) {
-  res.set("Access-Control-Allow-Origin", "*");
-  res.set("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
 }
 
 export const aiChat = onRequest(async (req, res) => {

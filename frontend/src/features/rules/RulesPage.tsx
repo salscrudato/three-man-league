@@ -66,16 +66,17 @@ export const RulesPage: React.FC = () => {
   const totalPot = activeLeague?.payoutTotal ?? TOTAL_POT;
 
   // Build payout structure from league data or use defaults
+  const leaguePayoutStructure = activeLeague?.payoutStructure;
   const payoutStructure = useMemo(() => {
-    if (activeLeague?.payoutStructure && activeLeague.payoutStructure.length > 0) {
+    if (leaguePayoutStructure && leaguePayoutStructure.length > 0) {
       const structure: Record<number, number> = {};
-      activeLeague.payoutStructure.forEach(p => {
+      leaguePayoutStructure.forEach(p => {
         structure[p.rank] = p.amount;
       });
       return structure;
     }
     return PAYOUT_STRUCTURE;
-  }, [activeLeague?.payoutStructure]);
+  }, [leaguePayoutStructure]);
 
   const payingPlaces = Object.keys(payoutStructure).length;
 

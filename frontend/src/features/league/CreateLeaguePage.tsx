@@ -6,10 +6,9 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { useLeague } from "../../league/LeagueContext";
+import { apiPost, getErrorMessage } from "../../lib/api";
 import { LuArrowLeft, LuArrowRight, LuCheck, LuCopy, LuUsers, LuDollarSign, LuTrophy } from "react-icons/lu";
 import type { PayoutEntry } from "../../types";
-
-const API_BASE = import.meta.env.VITE_FUNCTIONS_URL || "";
 
 type Step = "name" | "payouts" | "review" | "success";
 
@@ -65,42 +64,32 @@ export const CreateLeaguePage: React.FC = () => {
 
   const handleCreate = async () => {
     if (!user) return;
-    
+
     setLoading(true);
     setError(null);
-    
+
     try {
-      const token = await user.getIdToken();
-      const res = await fetch(`${API_BASE}/createLeague`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: name.trim(),
-          entryFee,
-          maxPlayers: maxPlayers || undefined,
-          payoutStructure: payouts,
-        }),
-      });
-      
-      const data = await res.json();
-      
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to create league");
-      }
-      
+      const data = await apiPost<{
+        leagueId: string;
+        joinCode: string;
+        joinLink: string;
+      }>("/createLeague", {
+        name: name.trim(),
+        entryFee,
+        maxPlayers: maxPlayers || undefined,
+        payoutStructure: payouts,
+      }, user);
+
       setCreatedLeagueId(data.leagueId);
       setJoinCode(data.joinCode);
       setJoinLink(data.joinLink);
       setStep("success");
-      
+
       // Refresh leagues and set as active
       await refreshLeagues();
       await setActiveLeague(data.leagueId);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create league");
+      setError(getErrorMessage(err));
     } finally {
       setLoading(false);
     }

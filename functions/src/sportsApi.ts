@@ -1,5 +1,5 @@
 import fetch from "node-fetch";
-import { SEASON } from "./config.js";
+import { SEASON, ESPN_SITE_API, ESPN_CORE_API } from "./config.js";
 
 /**
  * ESPN NFL API Integration
@@ -11,10 +11,6 @@ import { SEASON } from "./config.js";
  * - Athletes: Player info and game stats
  * - Summary: Detailed game box scores
  */
-
-const ESPN_SITE_API = "https://site.api.espn.com/apis/site/v2/sports/football/nfl";
-// ESPN Core API - available for more detailed queries if needed
-// const ESPN_CORE_API = "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl";
 
 // Retry configuration for robustness
 const MAX_RETRIES = 3;
@@ -552,8 +548,6 @@ export async function getCurrentWeek(): Promise<number> {
 }
 
 // ===== Season Statistics =====
-
-const ESPN_CORE_API = "https://sports.core.api.espn.com/v2/sports/football/leagues/nfl";
 
 export interface SeasonStatistics {
   passingYards: number;
