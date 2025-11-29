@@ -12,11 +12,12 @@ import { doc, getDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../auth/AuthContext";
 import { apiGet } from "../lib/api";
-import type { League, LeagueSummary, MemberRole } from "../types";
+import { mapLeague, mapLeagueMember } from "../lib/firestore";
+import type { LeagueWithId, LeagueSummary, MemberRole } from "../types";
 
 export interface LeagueContextType {
   // Current active league
-  activeLeague: League | null;
+  activeLeague: LeagueWithId | null;
   activeLeagueId: string | null;
   userRole: MemberRole | null;
   
@@ -49,7 +50,7 @@ export const useLeague = () => useContext(LeagueContext);
 
 export const LeagueProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
-  const [activeLeague, setActiveLeagueState] = useState<League | null>(null);
+  const [activeLeague, setActiveLeagueState] = useState<LeagueWithId | null>(null);
   const [activeLeagueId, setActiveLeagueId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<MemberRole | null>(null);
   const [userLeagues, setUserLeagues] = useState<LeagueSummary[]>([]);
@@ -98,13 +99,21 @@ export const LeagueProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         return;
       }
 
-      const leagueData = { id: leagueDoc.id, ...leagueDoc.data() } as League;
+      const leagueData = mapLeague(leagueDoc);
+      if (!leagueData) {
+        console.error("Failed to parse league data");
+        setActiveLeagueState(null);
+        setActiveLeagueId(null);
+        setLoading(false);
+        return;
+      }
       setActiveLeagueState(leagueData);
 
       // Fetch user's role in this league
       const memberDoc = await getDoc(doc(db, "leagues", activeLeagueId, "members", user.uid));
-      if (memberDoc.exists()) {
-        setUserRole(memberDoc.data().role as MemberRole);
+      const memberData = mapLeagueMember(memberDoc);
+      if (memberData) {
+        setUserRole(memberData.role);
       } else {
         setUserRole(null);
       }

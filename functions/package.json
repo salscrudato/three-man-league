@@ -8,7 +8,9 @@
     "start": "npm run shell",
     "deploy": "firebase deploy --only functions",
     "logs": "firebase functions:log",
-    "test": "jest"
+    "test": "jest",
+    "lint": "tsc --noEmit",
+    "typecheck": "tsc --noEmit"
   },
   "engines": {
     "node": "20"

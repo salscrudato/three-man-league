@@ -8,34 +8,25 @@ import { useAuth } from "../../auth/AuthContext";
 import { useLeague } from "../../league/LeagueContext";
 import { apiPost, getErrorMessage } from "../../lib/api";
 import { LuArrowLeft, LuArrowRight, LuCheck, LuCopy, LuUsers, LuDollarSign, LuTrophy } from "react-icons/lu";
+import { DEFAULT_PAYOUT_ENTRIES } from "../../types";
 import type { PayoutEntry } from "../../types";
 
 type Step = "name" | "payouts" | "review" | "success";
-
-const DEFAULT_PAYOUTS: PayoutEntry[] = [
-  { rank: 1, amount: 1200 },
-  { rank: 2, amount: 750 },
-  { rank: 3, amount: 500 },
-  { rank: 4, amount: 415 },
-  { rank: 5, amount: 270 },
-  { rank: 6, amount: 195 },
-  { rank: 7, amount: 120 },
-];
 
 export const CreateLeaguePage: React.FC = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { refreshLeagues, setActiveLeague } = useLeague();
-  
+
   const [step, setStep] = useState<Step>("name");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+
   // Form state
   const [name, setName] = useState("");
   const [entryFee, setEntryFee] = useState(50);
   const [maxPlayers, setMaxPlayers] = useState<number | undefined>(undefined);
-  const [payouts, setPayouts] = useState<PayoutEntry[]>(DEFAULT_PAYOUTS);
+  const [payouts, setPayouts] = useState<PayoutEntry[]>([...DEFAULT_PAYOUT_ENTRIES]);
   
   // Success state
   const [, setCreatedLeagueId] = useState<string | null>(null);
@@ -121,152 +112,69 @@ export const CreateLeaguePage: React.FC = () => {
     switch (step) {
       case "name":
         return (
-          <div className="space-y-6">
+          <div className="space-y-3">
             <div>
-              <label className="block text-body-sm font-medium text-text-primary mb-2">
-                League Name
-              </label>
-              <input
-                type="text"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g., The Gridiron Gang"
-                className="w-full px-4 py-3 bg-surface border border-border rounded-button text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                maxLength={50}
-                autoFocus
-              />
-              <p className="mt-2 text-caption text-text-muted">{name.length}/50 characters</p>
+              <label className="block text-tiny font-medium text-text-primary mb-1">League Name</label>
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g., The Gridiron Gang"
+                className="w-full px-2.5 py-1.5 bg-white border border-border/40 rounded-md text-body-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/15 focus:border-primary"
+                maxLength={50} autoFocus />
+              <p className="mt-0.5 text-tiny text-text-muted">{name.length}/50</p>
             </div>
-            
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-body-sm font-medium text-text-primary mb-2">
-                  Entry Fee ($)
-                </label>
-                <input
-                  type="number"
-                  value={entryFee}
-                  onChange={(e) => setEntryFee(Math.max(0, parseInt(e.target.value) || 0))}
-                  className="w-full px-4 py-3 bg-surface border border-border rounded-button text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                  min={0}
-                />
+                <label className="block text-tiny font-medium text-text-primary mb-1">Entry Fee ($)</label>
+                <input type="number" value={entryFee} onChange={(e) => setEntryFee(Math.max(0, parseInt(e.target.value) || 0))}
+                  className="w-full px-2.5 py-1.5 bg-white border border-border/40 rounded-md text-body-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/15 focus:border-primary" min={0} />
               </div>
               <div>
-                <label className="block text-body-sm font-medium text-text-primary mb-2">
-                  Max Players (optional)
-                </label>
-                <input
-                  type="number"
-                  value={maxPlayers || ""}
-                  onChange={(e) => setMaxPlayers(e.target.value ? parseInt(e.target.value) : undefined)}
-                  placeholder="Unlimited"
-                  className="w-full px-4 py-3 bg-surface border border-border rounded-button text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                  min={2}
-                  max={100}
-                />
+                <label className="block text-tiny font-medium text-text-primary mb-1">Max Players</label>
+                <input type="number" value={maxPlayers || ""} onChange={(e) => setMaxPlayers(e.target.value ? parseInt(e.target.value) : undefined)} placeholder="Unlimited"
+                  className="w-full px-2.5 py-1.5 bg-white border border-border/40 rounded-md text-body-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-primary/15 focus:border-primary" min={2} max={100} />
               </div>
             </div>
           </div>
         );
-
       case "payouts":
         return (
-          <div className="space-y-6">
+          <div className="space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="text-body font-medium text-text-primary">Payout Structure</h3>
-              <button
-                onClick={handleAddPayout}
-                className="text-body-sm text-primary hover:text-primary-hover font-medium"
-              >
-                + Add Place
-              </button>
+              <span className="text-body-sm font-medium text-text-primary">Payout Structure</span>
+              <button onClick={handleAddPayout} className="text-tiny text-primary hover:text-primary-hover font-medium">+ Add</button>
             </div>
-
-            <div className="space-y-3">
+            <div className="space-y-1.5">
               {payouts.map((payout, index) => (
-                <div key={index} className="flex items-center gap-3">
-                  <div className="w-16 flex items-center justify-center">
-                    <span className="text-body-sm font-medium text-text-secondary">
-                      {payout.rank === 1 ? "1st" : payout.rank === 2 ? "2nd" : payout.rank === 3 ? "3rd" : `${payout.rank}th`}
-                    </span>
-                  </div>
+                <div key={index} className="flex items-center gap-1.5">
+                  <span className="w-8 text-tiny font-medium text-text-secondary text-center">{payout.rank === 1 ? "1st" : payout.rank === 2 ? "2nd" : payout.rank === 3 ? "3rd" : `${payout.rank}th`}</span>
                   <div className="flex-1 relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted">$</span>
-                    <input
-                      type="number"
-                      value={payout.amount}
-                      onChange={(e) => handlePayoutChange(index, Math.max(0, parseInt(e.target.value) || 0))}
-                      className="w-full pl-8 pr-4 py-2 bg-surface border border-border rounded-button text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                      min={0}
-                    />
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-tiny text-text-muted">$</span>
+                    <input type="number" value={payout.amount} onChange={(e) => handlePayoutChange(index, Math.max(0, parseInt(e.target.value) || 0))}
+                      className="w-full pl-5 pr-2 py-1 bg-white border border-border/40 rounded-md text-body-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/15 focus:border-primary" min={0} />
                   </div>
-                  {payouts.length > 1 && (
-                    <button
-                      onClick={() => handleRemovePayout(index)}
-                      className="p-2 text-text-muted hover:text-danger transition-colors"
-                      aria-label="Remove payout"
-                    >
-                      ×
-                    </button>
-                  )}
+                  {payouts.length > 1 && <button onClick={() => handleRemovePayout(index)} className="p-0.5 text-text-muted hover:text-error text-sm">×</button>}
                 </div>
               ))}
             </div>
-
-            <div className="flex items-center justify-between pt-4 border-t border-border">
-              <span className="text-body font-medium text-text-primary">Total Pot</span>
-              <span className="text-section-title font-bold text-primary">${totalPayout.toLocaleString()}</span>
+            <div className="flex items-center justify-between pt-2 border-t border-border/30">
+              <span className="text-body-sm font-medium text-text-primary">Total</span>
+              <span className="text-body-sm font-semibold text-primary">${totalPayout.toLocaleString()}</span>
             </div>
           </div>
         );
-
       case "review":
         return (
-          <div className="space-y-6">
-            <div className="bg-subtle rounded-card p-4 space-y-4">
-              <div className="flex items-center gap-3">
-                <LuUsers className="w-5 h-5 text-primary" />
-                <div>
-                  <p className="text-caption text-text-muted">League Name</p>
-                  <p className="text-body font-medium text-text-primary">{name}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <LuDollarSign className="w-5 h-5 text-primary" />
-                <div>
-                  <p className="text-caption text-text-muted">Entry Fee</p>
-                  <p className="text-body font-medium text-text-primary">${entryFee}</p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                <LuTrophy className="w-5 h-5 text-primary" />
-                <div>
-                  <p className="text-caption text-text-muted">Total Pot</p>
-                  <p className="text-body font-medium text-text-primary">${totalPayout.toLocaleString()}</p>
-                </div>
-              </div>
-
-              {maxPlayers && (
-                <div className="flex items-center gap-3">
-                  <LuUsers className="w-5 h-5 text-primary" />
-                  <div>
-                    <p className="text-caption text-text-muted">Max Players</p>
-                    <p className="text-body font-medium text-text-primary">{maxPlayers}</p>
-                  </div>
-                </div>
-              )}
+          <div className="space-y-3">
+            <div className="bg-subtle/60 rounded-md p-2.5 space-y-2">
+              <div className="flex items-center gap-1.5"><LuUsers className="w-3.5 h-3.5 text-primary" /><div><p className="text-tiny text-text-muted">Name</p><p className="text-body-sm font-medium text-text-primary">{name}</p></div></div>
+              <div className="flex items-center gap-1.5"><LuDollarSign className="w-3.5 h-3.5 text-primary" /><div><p className="text-tiny text-text-muted">Entry</p><p className="text-body-sm font-medium text-text-primary">${entryFee}</p></div></div>
+              <div className="flex items-center gap-1.5"><LuTrophy className="w-3.5 h-3.5 text-primary" /><div><p className="text-tiny text-text-muted">Pot</p><p className="text-body-sm font-medium text-text-primary">${totalPayout.toLocaleString()}</p></div></div>
+              {maxPlayers && <div className="flex items-center gap-1.5"><LuUsers className="w-3.5 h-3.5 text-primary" /><div><p className="text-tiny text-text-muted">Max</p><p className="text-body-sm font-medium text-text-primary">{maxPlayers}</p></div></div>}
             </div>
-
             <div>
-              <p className="text-body-sm font-medium text-text-primary mb-2">Payout Breakdown</p>
-              <div className="bg-subtle rounded-card p-3 space-y-2">
+              <p className="text-tiny font-medium text-text-primary mb-1">Payouts</p>
+              <div className="bg-subtle/60 rounded-md p-2 space-y-0.5">
                 {payouts.map((p) => (
-                  <div key={p.rank} className="flex justify-between text-body-sm">
-                    <span className="text-text-secondary">
-                      {p.rank === 1 ? "1st Place" : p.rank === 2 ? "2nd Place" : p.rank === 3 ? "3rd Place" : `${p.rank}th Place`}
-                    </span>
+                  <div key={p.rank} className="flex justify-between text-tiny">
+                    <span className="text-text-secondary">{p.rank === 1 ? "1st" : p.rank === 2 ? "2nd" : p.rank === 3 ? "3rd" : `${p.rank}th`}</span>
                     <span className="font-medium text-text-primary">${p.amount.toLocaleString()}</span>
                   </div>
                 ))}
@@ -274,150 +182,63 @@ export const CreateLeaguePage: React.FC = () => {
             </div>
           </div>
         );
-
       case "success":
         return (
-          <div className="text-center space-y-6">
-            <div className="inline-flex items-center justify-center w-16 h-16 bg-success/10 rounded-full">
-              <LuCheck className="w-8 h-8 text-success" />
-            </div>
-
+          <div className="text-center space-y-3">
+            <div className="inline-flex items-center justify-center w-10 h-10 bg-success/10 rounded-lg"><LuCheck className="w-5 h-5 text-success" /></div>
             <div>
-              <h2 className="text-section-title font-bold text-text-primary mb-2">League Created!</h2>
-              <p className="text-body text-text-secondary">
-                Share the join code with your friends to invite them.
-              </p>
+              <h2 className="text-body-sm font-semibold text-text-primary mb-0.5">League Created!</h2>
+              <p className="text-tiny text-text-secondary">Share the code to invite friends.</p>
             </div>
-
-            <div className="bg-subtle rounded-card p-4 space-y-4">
+            <div className="bg-subtle/60 rounded-md p-2.5 space-y-2">
               <div>
-                <p className="text-caption text-text-muted mb-2">Join Code</p>
-                <div className="flex items-center gap-2">
-                  <code className="flex-1 px-4 py-3 bg-surface border border-border rounded-button text-center text-page-title font-mono font-bold text-primary tracking-widest">
-                    {joinCode}
-                  </code>
-                  <button
-                    onClick={handleCopyCode}
-                    className="p-3 bg-surface border border-border rounded-button hover:bg-border transition-colors"
-                    aria-label="Copy code"
-                  >
-                    {copied ? <LuCheck className="w-5 h-5 text-success" /> : <LuCopy className="w-5 h-5 text-text-secondary" />}
+                <p className="text-tiny text-text-muted mb-0.5">Join Code</p>
+                <div className="flex items-center gap-1.5">
+                  <code className="flex-1 px-2.5 py-1.5 bg-white border border-border/40 rounded-md text-center text-body-sm font-mono font-semibold text-primary tracking-widest">{joinCode}</code>
+                  <button onClick={handleCopyCode} className="p-1.5 bg-white border border-border/40 rounded-md hover:bg-subtle transition-colors">
+                    {copied ? <LuCheck className="w-3.5 h-3.5 text-success" /> : <LuCopy className="w-3.5 h-3.5 text-text-secondary" />}
                   </button>
                 </div>
               </div>
-
               <div>
-                <p className="text-caption text-text-muted mb-2">Or share this link</p>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={joinLink || ""}
-                    readOnly
-                    className="flex-1 px-4 py-2 bg-surface border border-border rounded-button text-body-sm text-text-secondary truncate"
-                  />
-                  <button
-                    onClick={handleCopyLink}
-                    className="p-2 bg-surface border border-border rounded-button hover:bg-border transition-colors"
-                    aria-label="Copy link"
-                  >
-                    <LuCopy className="w-4 h-4 text-text-secondary" />
-                  </button>
+                <p className="text-tiny text-text-muted mb-0.5">Or share link</p>
+                <div className="flex items-center gap-1.5">
+                  <input type="text" value={joinLink || ""} readOnly className="flex-1 px-2 py-1 bg-white border border-border/40 rounded-md text-tiny text-text-secondary truncate" />
+                  <button onClick={handleCopyLink} className="p-1 bg-white border border-border/40 rounded-md hover:bg-subtle transition-colors"><LuCopy className="w-3 h-3 text-text-secondary" /></button>
                 </div>
               </div>
             </div>
-
-            <button
-              onClick={() => navigate("/picks")}
-              className="w-full px-6 py-3 bg-primary text-white rounded-button font-medium hover:bg-primary-hover transition-colors"
-            >
-              Go to Picks
-            </button>
+            <button onClick={() => navigate("/picks")} className="w-full px-3 py-1.5 bg-primary text-white rounded-md text-body-sm font-medium hover:bg-primary-hover transition-colors">Go to Picks</button>
           </div>
         );
     }
   };
 
-  const stepTitles: Record<Step, string> = {
-    name: "Create Your League",
-    payouts: "Set Up Payouts",
-    review: "Review & Create",
-    success: "Success!",
-  };
+  const stepTitles: Record<Step, string> = { name: "Create League", payouts: "Payouts", review: "Review", success: "Done" };
 
   return (
-    <div className="max-w-lg mx-auto">
-      {/* Header */}
+    <div className="max-w-sm mx-auto">
       {step !== "success" && (
-        <div className="mb-8">
-          <button
-            onClick={() => step === "name" ? navigate(-1) : setStep(step === "payouts" ? "name" : "payouts")}
-            className="flex items-center gap-2 text-body-sm text-text-secondary hover:text-text-primary mb-4"
-          >
-            <LuArrowLeft className="w-4 h-4" />
-            Back
+        <div className="mb-4">
+          <button onClick={() => step === "name" ? navigate(-1) : setStep(step === "payouts" ? "name" : "payouts")} className="flex items-center gap-1 text-tiny text-text-secondary hover:text-text-primary mb-2">
+            <LuArrowLeft className="w-3 h-3" /> Back
           </button>
-          <h1 className="text-page-title font-bold text-text-primary">{stepTitles[step]}</h1>
-
-          {/* Progress indicator */}
-          <div className="flex items-center gap-2 mt-4">
+          <h1 className="text-section-title text-text-primary">{stepTitles[step]}</h1>
+          <div className="flex items-center gap-1 mt-2">
             {["name", "payouts", "review"].map((s, i) => (
-              <div
-                key={s}
-                className={`h-1 flex-1 rounded-full transition-colors ${
-                  s === step ? "bg-primary" :
-                  ["name", "payouts", "review"].indexOf(step) > i ? "bg-primary/50" : "bg-border"
-                }`}
-              />
+              <div key={s} className={`h-0.5 flex-1 rounded-full ${s === step ? "bg-primary" : ["name", "payouts", "review"].indexOf(step) > i ? "bg-primary/50" : "bg-border/60"}`} />
             ))}
           </div>
         </div>
       )}
-
-      {/* Error message */}
-      {error && (
-        <div className="mb-6 p-4 bg-danger/10 border border-danger/20 rounded-card text-danger text-body-sm">
-          {error}
-        </div>
-      )}
-
-      {/* Step content */}
-      <div className="bg-surface rounded-card border border-border p-6">
-        {renderStep()}
-      </div>
-
-      {/* Navigation buttons */}
+      {error && <div className="mb-3 p-2 bg-error-soft border border-error/20 rounded-md text-error text-tiny">{error}</div>}
+      <div className="bg-white rounded-lg border border-border/40 p-3">{renderStep()}</div>
       {step !== "success" && (
-        <div className="flex gap-3 mt-6">
-          {step !== "name" && (
-            <button
-              onClick={() => setStep(step === "payouts" ? "name" : "payouts")}
-              className="flex-1 px-6 py-3 bg-subtle text-text-secondary rounded-button font-medium hover:bg-border transition-colors"
-            >
-              Back
-            </button>
-          )}
-          <button
-            onClick={() => {
-              if (step === "name") setStep("payouts");
-              else if (step === "payouts") setStep("review");
-              else handleCreate();
-            }}
-            disabled={!canProceed() || loading}
-            className="flex-1 flex items-center justify-center gap-2 px-6 py-3 bg-primary text-white rounded-button font-medium hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {loading ? (
-              <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-            ) : step === "review" ? (
-              <>
-                <LuCheck className="w-5 h-5" />
-                Create League
-              </>
-            ) : (
-              <>
-                Continue
-                <LuArrowRight className="w-5 h-5" />
-              </>
-            )}
+        <div className="flex gap-1.5 mt-3">
+          {step !== "name" && <button onClick={() => setStep(step === "payouts" ? "name" : "payouts")} className="flex-1 px-3 py-1.5 bg-subtle text-text-secondary rounded-md text-body-sm font-medium hover:bg-border transition-colors">Back</button>}
+          <button onClick={() => { if (step === "name") setStep("payouts"); else if (step === "payouts") setStep("review"); else handleCreate(); }} disabled={!canProceed() || loading}
+            className="flex-1 flex items-center justify-center gap-1 px-3 py-1.5 bg-primary text-white rounded-md text-body-sm font-medium hover:bg-primary-hover transition-colors disabled:opacity-50">
+            {loading ? <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" /> : step === "review" ? <><LuCheck className="w-3.5 h-3.5" />Create</> : <>Continue<LuArrowRight className="w-3.5 h-3.5" /></>}
           </button>
         </div>
       )}

@@ -24,6 +24,10 @@
         "function": "syncPlayers"
       },
       {
+        "source": "/syncPlayerStats",
+        "function": "syncPlayerStats"
+      },
+      {
         "source": "/scoreWeek",
         "function": "scoreWeek"
       },
@@ -34,6 +38,58 @@
       {
         "source": "/initializeLeague",
         "function": "initializeLeague"
+      },
+      {
+        "source": "/createLeague",
+        "function": "createLeague"
+      },
+      {
+        "source": "/joinLeague",
+        "function": "joinLeague"
+      },
+      {
+        "source": "/getUserLeagues",
+        "function": "getUserLeagues"
+      },
+      {
+        "source": "/getLeagueDetails",
+        "function": "getLeagueDetails"
+      },
+      {
+        "source": "/updateLeagueSettings",
+        "function": "updateLeagueSettings"
+      },
+      {
+        "source": "/regenerateJoinCode",
+        "function": "regenerateJoinCode"
+      },
+      {
+        "source": "/leaveOrRemoveMember",
+        "function": "leaveOrRemoveMember"
+      },
+      {
+        "source": "/setActiveLeague",
+        "function": "setActiveLeague"
+      },
+      {
+        "source": "/enableBackfill",
+        "function": "enableBackfill"
+      },
+      {
+        "source": "/getBackfillStatus",
+        "function": "getBackfillStatus"
+      },
+      {
+        "source": "/backfillWeekForLeague",
+        "function": "backfillWeekForLeague"
+      },
+      {
+        "source": "/getBackfillWeekScores",
+        "function": "getBackfillWeekScores"
+      },
+      {
+        "source": "/completeBackfill",
+        "function": "completeBackfill"
       },
       {
         "source": "**",

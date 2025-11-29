@@ -8,9 +8,10 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { useLeague } from "../../league/LeagueContext";
 import { apiGet, apiPost, getErrorMessage } from "../../lib/api";
+import { mapLeagueMember, mapDocs } from "../../lib/firestore";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../../firebase";
-import { LuArrowLeft, LuCalendar, LuCheck, LuCircleAlert, LuLoader, LuChevronRight, LuLock } from "react-icons/lu";
+import { LuArrowLeft, LuCalendar, LuCheck, LuCircleAlert, LuLoader, LuChevronRight, LuLock, LuSparkles, LuTrophy } from "react-icons/lu";
 import type { LeagueMember, BackfillStatusResponse, BackfillWeekStatus, BackfillWeekResponse } from "../../types";
 import { BackfillWeekForm } from "./BackfillWeekForm";
 
@@ -47,10 +48,7 @@ export const BackfillPage: React.FC = () => {
       const q = query(membersRef, where("isActive", "==", true));
       const snap = await getDocs(q);
 
-      const memberList: LeagueMember[] = snap.docs.map(doc => ({
-        userId: doc.id,
-        ...doc.data(),
-      } as LeagueMember));
+      const memberList = mapDocs(snap.docs, mapLeagueMember);
 
       setMembers(memberList.sort((a, b) => a.displayName.localeCompare(b.displayName)));
 
@@ -227,27 +225,63 @@ export const BackfillPage: React.FC = () => {
 
       {/* Week List */}
       {backfillStatus?.backfillEnabled && (
-        <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-body font-semibold text-text-primary">Weeks to Backfill</h2>
-            <span className="text-body-sm text-text-muted">
-              {backfillStatus.weeks.filter(w => w.status === "backfilled").length} / {backfillStatus.weeks.length} completed
-            </span>
+        <div className="space-y-6">
+          {/* Progress Header */}
+          <div className="bg-surface rounded-card border border-border p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-full bg-primary-soft flex items-center justify-center">
+                  <LuSparkles className="w-5 h-5 text-primary" />
+                </div>
+                <div>
+                  <h2 className="text-body font-semibold text-text-primary">Backfill Progress</h2>
+                  <p className="text-body-sm text-text-muted">
+                    Weeks {backfillStatus.backfillFromWeek} - {backfillStatus.backfillToWeek}
+                  </p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-section-title font-bold text-primary">
+                  {backfillStatus.weeks.filter(w => w.status === "backfilled").length} / {backfillStatus.weeks.length}
+                </p>
+                <p className="text-caption text-text-muted">weeks completed</p>
+              </div>
+            </div>
+
+            {/* Progress Bar */}
+            <div className="w-full bg-subtle rounded-full h-2 overflow-hidden">
+              <div
+                className="bg-primary h-full rounded-full transition-all duration-500"
+                style={{
+                  width: `${(backfillStatus.weeks.filter(w => w.status === "backfilled").length / backfillStatus.weeks.length) * 100}%`
+                }}
+              />
+            </div>
           </div>
 
-          <div className="bg-surface rounded-card border border-border divide-y divide-border">
+          {/* Week Cards */}
+          <div className="grid gap-3">
             {backfillStatus.weeks.map((week: BackfillWeekStatus) => (
               <WeekRow key={week.weekNumber} week={week} onSelect={() => setActiveWeek(week.weekNumber)} />
             ))}
           </div>
 
+          {/* Completion Message */}
           {backfillStatus.weeks.every(w => w.status === "backfilled") && (
-            <div className="bg-success/10 border border-success/20 rounded-card p-6 text-center">
-              <LuCheck className="w-8 h-8 text-success mx-auto mb-2" />
-              <h3 className="text-body font-semibold text-success mb-1">All Weeks Backfilled!</h3>
-              <p className="text-body-sm text-text-secondary">
-                Your league is now fully set up. Season standings have been updated.
+            <div className="bg-gradient-to-r from-success/10 to-primary/10 border border-success/20 rounded-card p-8 text-center">
+              <div className="w-16 h-16 bg-success/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <LuTrophy className="w-8 h-8 text-success" />
+              </div>
+              <h3 className="text-section-title font-bold text-success mb-2">All Weeks Backfilled!</h3>
+              <p className="text-body text-text-secondary mb-6 max-w-md mx-auto">
+                Your league is now fully set up with historical data. Season standings have been calculated and updated.
               </p>
+              <button
+                onClick={() => navigate("/standings")}
+                className="px-6 py-3 bg-success text-white rounded-button font-medium hover:bg-success/90 transition-colors"
+              >
+                View Standings
+              </button>
             </div>
           )}
         </div>
@@ -261,23 +295,45 @@ const WeekRow: React.FC<{ week: BackfillWeekStatus; onSelect: () => void }> = ({
   const isBackfilled = week.status === "backfilled";
 
   return (
-    <button onClick={onSelect} className="w-full flex items-center justify-between p-4 hover:bg-subtle transition-colors text-left">
-      <div className="flex items-center gap-3">
-        <div className={`w-8 h-8 rounded-full flex items-center justify-center ${isBackfilled ? "bg-success/10 text-success" : "bg-subtle text-text-muted"}`}>
-          {isBackfilled ? <LuCheck className="w-4 h-4" /> : <span className="text-body-sm font-medium">{week.weekNumber}</span>}
+    <button
+      onClick={onSelect}
+      className={`w-full flex items-center justify-between p-4 bg-surface border rounded-card transition-all text-left group ${
+        isBackfilled
+          ? "border-success/30 hover:border-success/50"
+          : "border-border hover:border-primary hover:shadow-sm"
+      }`}
+    >
+      <div className="flex items-center gap-4">
+        <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold ${
+          isBackfilled
+            ? "bg-success/10 text-success"
+            : "bg-subtle text-text-muted group-hover:bg-primary-soft group-hover:text-primary"
+        }`}>
+          {isBackfilled ? <LuCheck className="w-5 h-5" /> : <span className="text-body">{week.weekNumber}</span>}
         </div>
         <div>
-          <p className="text-body font-medium text-text-primary">Week {week.weekNumber}</p>
-          {isBackfilled && (
-            <p className="text-caption text-text-muted">{week.memberCount} members scored</p>
-          )}
+          <p className="text-body font-semibold text-text-primary">Week {week.weekNumber}</p>
+          <p className="text-caption text-text-muted">
+            {isBackfilled
+              ? `${week.memberCount} members scored`
+              : "Click to enter picks"
+            }
+          </p>
         </div>
       </div>
-      <div className="flex items-center gap-2">
-        {isBackfilled && (
-          <span className="text-caption text-success font-medium">Completed</span>
+      <div className="flex items-center gap-3">
+        {isBackfilled ? (
+          <span className="px-3 py-1 bg-success/10 text-success text-caption font-medium rounded-full">
+            Completed
+          </span>
+        ) : (
+          <span className="px-3 py-1 bg-warning/10 text-warning text-caption font-medium rounded-full">
+            Pending
+          </span>
         )}
-        <LuChevronRight className="w-5 h-5 text-text-muted" />
+        <LuChevronRight className={`w-5 h-5 transition-transform ${
+          isBackfilled ? "text-success" : "text-text-muted group-hover:text-primary group-hover:translate-x-1"
+        }`} />
       </div>
     </button>
   );

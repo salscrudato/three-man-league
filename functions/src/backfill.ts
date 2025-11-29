@@ -9,7 +9,7 @@ import { onRequest } from "firebase-functions/v2/https";
 import { db, SEASON } from "./config.js";
 import { fetchEventStats, fetchWeekSchedule } from "./sportsApi.js";
 import { calculateDraftKingsPoints, mapSportsDbToStats } from "./scoring.js";
-import { setCors, verifyAuth } from "./utils/http.js";
+import { sendError, sendSuccess, handleAuthenticatedRequest } from "./utils/http.js";
 import type {
   BackfillWeekRequest,
   BackfillWeekResponse,
@@ -46,16 +46,10 @@ async function isLeagueAdmin(leagueId: string, userId: string): Promise<boolean>
  * Enable backfill mode for a league
  */
 export const enableBackfill = onRequest(async (req, res) => {
-  setCors(res);
-  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
-  if (req.method !== "POST") { res.status(405).send({ error: "POST only" }); return; }
+  const auth = await handleAuthenticatedRequest(req, res, "POST");
+  if (!auth) return;
 
-  const userId = await verifyAuth(req.headers.authorization);
-  if (!userId) {
-    res.status(401).send({ error: "Authentication required" });
-    return;
-  }
-
+  const userId = auth.userId;
   const { leagueId, fromWeek, toWeek } = req.body as {
     leagueId: string;
     fromWeek: number;
@@ -63,23 +57,26 @@ export const enableBackfill = onRequest(async (req, res) => {
   };
 
   if (!leagueId || !fromWeek || !toWeek) {
-    res.status(400).send({ error: "leagueId, fromWeek, and toWeek required" });
+    sendError(res, 400, "leagueId, fromWeek, and toWeek required");
     return;
   }
 
   if (fromWeek < 1 || toWeek > 18 || fromWeek > toWeek) {
-    res.status(400).send({ error: "Invalid week range. Must be 1-18 and fromWeek <= toWeek" });
+    sendError(res, 400, "Invalid week range. Must be 1-18 and fromWeek <= toWeek");
     return;
   }
 
   const isAdmin = await isLeagueAdmin(leagueId, userId);
   if (!isAdmin) {
-    res.status(403).send({ error: "Only league owner or co-owner can enable backfill" });
+    sendError(res, 403, "Only league owner or co-owner can enable backfill");
     return;
   }
 
   try {
-    await db.collection("leagues").doc(leagueId).update({
+    const batch = db.batch();
+
+    // Update league with backfill settings
+    batch.update(db.collection("leagues").doc(leagueId), {
       backfillEnabled: true,
       backfillFromWeek: fromWeek,
       backfillToWeek: toWeek,
@@ -87,10 +84,27 @@ export const enableBackfill = onRequest(async (req, res) => {
       updatedAt: new Date(),
     });
 
-    res.status(200).send({ ok: true });
+    // Create week documents for each week in range if they don't exist
+    for (let week = fromWeek; week <= toWeek; week++) {
+      const weekId = `week-${week}`;
+      const weekRef = db.collection("leagues").doc(leagueId).collection("weeks").doc(weekId);
+
+      // Use set with merge to create if not exists
+      batch.set(weekRef, {
+        weekNumber: week,
+        weekId,
+        status: "pending_backfill",
+        isBackfilled: false,
+        createdAt: new Date(),
+      }, { merge: true });
+    }
+
+    await batch.commit();
+
+    sendSuccess(res, { ok: true });
   } catch (err: unknown) {
     console.error("Enable backfill error:", err);
-    res.status(500).send({ error: err instanceof Error ? err.message : "Unknown error" });
+    sendError(res, 500, err instanceof Error ? err.message : "Unknown error");
   }
 });
 
@@ -98,31 +112,26 @@ export const enableBackfill = onRequest(async (req, res) => {
  * Get backfill status for a league
  */
 export const getBackfillStatus = onRequest(async (req, res) => {
-  setCors(res);
-  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+  const auth = await handleAuthenticatedRequest(req, res);
+  if (!auth) return;
 
-  const userId = await verifyAuth(req.headers.authorization);
-  if (!userId) {
-    res.status(401).send({ error: "Authentication required" });
-    return;
-  }
-
+  const userId = auth.userId;
   const leagueId = (req.query.leagueId || req.body?.leagueId) as string;
   if (!leagueId) {
-    res.status(400).send({ error: "leagueId required" });
+    sendError(res, 400, "leagueId required");
     return;
   }
 
   const isAdmin = await isLeagueAdmin(leagueId, userId);
   if (!isAdmin) {
-    res.status(403).send({ error: "Only league admin can view backfill status" });
+    sendError(res, 403, "Only league admin can view backfill status");
     return;
   }
 
   try {
     const leagueDoc = await db.collection("leagues").doc(leagueId).get();
     if (!leagueDoc.exists) {
-      res.status(404).send({ error: "League not found" });
+      sendError(res, 404, "League not found");
       return;
     }
 
@@ -139,7 +148,7 @@ export const getBackfillStatus = onRequest(async (req, res) => {
     for (const weekDoc of weeksSnap.docs) {
       const weekData = weekDoc.data();
       const weekNumber = weekData.weekNumber;
-      
+
       if (weekNumber >= fromWeek && weekNumber <= toWeek) {
         // Get scores for this week if backfilled
         const scoresSnap = await db.collection("leagues").doc(leagueId)
@@ -169,10 +178,10 @@ export const getBackfillStatus = onRequest(async (req, res) => {
       weeks,
     };
 
-    res.status(200).send(response);
+    sendSuccess(res, response);
   } catch (err: unknown) {
     console.error("Get backfill status error:", err);
-    res.status(500).send({ error: err instanceof Error ? err.message : "Unknown error" });
+    sendError(res, 500, err instanceof Error ? err.message : "Unknown error");
   }
 });
 
@@ -181,31 +190,25 @@ export const getBackfillStatus = onRequest(async (req, res) => {
  * This is the main function that processes picks and computes scores
  */
 export const backfillWeekForLeague = onRequest(async (req, res) => {
-  setCors(res);
-  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
-  if (req.method !== "POST") { res.status(405).send({ error: "POST only" }); return; }
+  const auth = await handleAuthenticatedRequest(req, res, "POST");
+  if (!auth) return;
 
-  const userId = await verifyAuth(req.headers.authorization);
-  if (!userId) {
-    res.status(401).send({ error: "Authentication required" });
-    return;
-  }
-
+  const userId = auth.userId;
   const { leagueId, weekNumber, memberPicks } = req.body as BackfillWeekRequest;
 
   if (!leagueId || !weekNumber || !memberPicks || !Array.isArray(memberPicks)) {
-    res.status(400).send({ error: "leagueId, weekNumber, and memberPicks array required" });
+    sendError(res, 400, "leagueId, weekNumber, and memberPicks array required");
     return;
   }
 
   if (weekNumber < 1 || weekNumber > 18) {
-    res.status(400).send({ error: "weekNumber must be between 1 and 18" });
+    sendError(res, 400, "weekNumber must be between 1 and 18");
     return;
   }
 
   const isAdmin = await isLeagueAdmin(leagueId, userId);
   if (!isAdmin) {
-    res.status(403).send({ error: "Only league admin can backfill weeks" });
+    sendError(res, 403, "Only league admin can backfill weeks");
     return;
   }
 
@@ -213,13 +216,13 @@ export const backfillWeekForLeague = onRequest(async (req, res) => {
     // Verify league exists and backfill is enabled
     const leagueDoc = await db.collection("leagues").doc(leagueId).get();
     if (!leagueDoc.exists) {
-      res.status(404).send({ error: "League not found" });
+      sendError(res, 404, "League not found");
       return;
     }
 
     const leagueData = leagueDoc.data()!;
     if (!leagueData.backfillEnabled) {
-      res.status(400).send({ error: "Backfill not enabled for this league" });
+      sendError(res, 400, "Backfill not enabled for this league");
       return;
     }
 
@@ -272,10 +275,10 @@ export const backfillWeekForLeague = onRequest(async (req, res) => {
       results,
     };
 
-    res.status(200).send(response);
+    sendSuccess(res, response);
   } catch (err: unknown) {
     console.error("Backfill week error:", err);
-    res.status(500).send({ error: err instanceof Error ? err.message : "Unknown error" });
+    sendError(res, 500, err instanceof Error ? err.message : "Unknown error");
   }
 });
 
@@ -511,25 +514,19 @@ async function updateSeasonStandings(leagueId: string): Promise<void> {
  * Complete backfill and mark league as ready
  */
 export const completeBackfill = onRequest(async (req, res) => {
-  setCors(res);
-  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
-  if (req.method !== "POST") { res.status(405).send({ error: "POST only" }); return; }
+  const auth = await handleAuthenticatedRequest(req, res, "POST");
+  if (!auth) return;
 
-  const userId = await verifyAuth(req.headers.authorization);
-  if (!userId) {
-    res.status(401).send({ error: "Authentication required" });
-    return;
-  }
-
+  const userId = auth.userId;
   const { leagueId } = req.body as { leagueId: string };
   if (!leagueId) {
-    res.status(400).send({ error: "leagueId required" });
+    sendError(res, 400, "leagueId required");
     return;
   }
 
   const isAdmin = await isLeagueAdmin(leagueId, userId);
   if (!isAdmin) {
-    res.status(403).send({ error: "Only league admin can complete backfill" });
+    sendError(res, 403, "Only league admin can complete backfill");
     return;
   }
 
@@ -545,10 +542,10 @@ export const completeBackfill = onRequest(async (req, res) => {
     // Final standings update
     await updateSeasonStandings(leagueId);
 
-    res.status(200).send({ ok: true });
+    sendSuccess(res, { ok: true });
   } catch (err: unknown) {
     console.error("Complete backfill error:", err);
-    res.status(500).send({ error: err instanceof Error ? err.message : "Unknown error" });
+    sendError(res, 500, err instanceof Error ? err.message : "Unknown error");
   }
 });
 
@@ -556,26 +553,21 @@ export const completeBackfill = onRequest(async (req, res) => {
  * Get detailed week scores for review
  */
 export const getBackfillWeekScores = onRequest(async (req, res) => {
-  setCors(res);
-  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+  const auth = await handleAuthenticatedRequest(req, res);
+  if (!auth) return;
 
-  const userId = await verifyAuth(req.headers.authorization);
-  if (!userId) {
-    res.status(401).send({ error: "Authentication required" });
-    return;
-  }
-
+  const userId = auth.userId;
   const leagueId = (req.query.leagueId || req.body?.leagueId) as string;
   const weekNumber = parseInt((req.query.weekNumber || req.body?.weekNumber) as string);
 
   if (!leagueId || !weekNumber) {
-    res.status(400).send({ error: "leagueId and weekNumber required" });
+    sendError(res, 400, "leagueId and weekNumber required");
     return;
   }
 
   const isAdmin = await isLeagueAdmin(leagueId, userId);
   if (!isAdmin) {
-    res.status(403).send({ error: "Only league admin can view backfill scores" });
+    sendError(res, 403, "Only league admin can view backfill scores");
     return;
   }
 
@@ -641,7 +633,7 @@ export const getBackfillWeekScores = onRequest(async (req, res) => {
 
     results.sort((a, b) => b.totalPoints - a.totalPoints);
 
-    res.status(200).send({
+    sendSuccess(res, {
       ok: true,
       weekNumber,
       weekId,
@@ -649,7 +641,7 @@ export const getBackfillWeekScores = onRequest(async (req, res) => {
     });
   } catch (err: unknown) {
     console.error("Get backfill week scores error:", err);
-    res.status(500).send({ error: err instanceof Error ? err.message : "Unknown error" });
+    sendError(res, 500, err instanceof Error ? err.message : "Unknown error");
   }
 });
 

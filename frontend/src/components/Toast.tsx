@@ -1,4 +1,5 @@
 import React, { useEffect } from "react";
+import { LuCheck, LuX, LuTriangleAlert, LuInfo } from "react-icons/lu";
 
 type ToastType = "success" | "error" | "warning" | "info";
 
@@ -10,26 +11,30 @@ interface ToastProps {
   visible: boolean;
 }
 
-const typeStyles: Record<ToastType, { bg: string; icon: string; text: string }> = {
+const typeStyles: Record<ToastType, { bg: string; icon: React.ReactNode; text: string; iconBg: string }> = {
   success: {
-    bg: "bg-success-soft border-success/30",
-    icon: "✓",
+    bg: "bg-white border-success/20",
+    icon: <LuCheck className="w-4 h-4" />,
     text: "text-success-text",
+    iconBg: "bg-success-soft text-success",
   },
   error: {
-    bg: "bg-error-soft border-error/30",
-    icon: "✕",
+    bg: "bg-white border-error/20",
+    icon: <LuX className="w-4 h-4" />,
     text: "text-error-text",
+    iconBg: "bg-error-soft text-error",
   },
   warning: {
-    bg: "bg-warning-soft border-warning/30",
-    icon: "⚠",
+    bg: "bg-white border-warning/20",
+    icon: <LuTriangleAlert className="w-4 h-4" />,
     text: "text-warning-text",
+    iconBg: "bg-warning-soft text-warning",
   },
   info: {
-    bg: "bg-info-soft border-info/30",
-    icon: "ℹ",
+    bg: "bg-white border-info/20",
+    icon: <LuInfo className="w-4 h-4" />,
     text: "text-info-text",
+    iconBg: "bg-info-soft text-info",
   },
 };
 
@@ -57,23 +62,23 @@ export const Toast: React.FC<ToastProps> = ({
     <div
       className={`
         fixed bottom-4 right-4 z-50
-        flex items-center gap-3 px-4 py-3 rounded-card border shadow-dropdown
-        animate-slide-up
+        flex items-center gap-3 px-4 py-3 rounded-xl border shadow-dropdown
+        animate-slide-up backdrop-blur-sm
         ${styles.bg}
       `}
       role="alert"
     >
-      <span className={`text-lg ${styles.text}`}>{styles.icon}</span>
-      <p className={`text-body-sm font-medium ${styles.text}`}>{message}</p>
+      <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${styles.iconBg}`}>
+        {styles.icon}
+      </div>
+      <p className="text-body-sm font-medium text-text-primary">{message}</p>
       {onClose && (
         <button
           onClick={onClose}
-          className={`ml-2 p-1 rounded hover:bg-black/5 transition-colors ${styles.text}`}
+          className="ml-1 p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-subtle transition-all duration-200"
           aria-label="Close"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <LuX className="w-4 h-4" />
         </button>
       )}
     </div>
@@ -99,23 +104,23 @@ export const Alert: React.FC<AlertProps> = ({
   return (
     <div
       className={`
-        flex items-center gap-3 px-4 py-3 rounded-card border
+        flex items-center gap-3 px-4 py-3 rounded-xl border
         ${styles.bg}
         ${className}
       `}
       role="alert"
     >
-      <span className={`text-base shrink-0 ${styles.text}`}>{styles.icon}</span>
-      <p className={`flex-1 text-body-sm ${styles.text}`}>{message}</p>
+      <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${styles.iconBg}`}>
+        {styles.icon}
+      </div>
+      <p className="flex-1 text-body-sm text-text-primary">{message}</p>
       {onClose && (
         <button
           onClick={onClose}
-          className={`shrink-0 p-1 rounded hover:bg-black/5 transition-colors ${styles.text}`}
+          className="shrink-0 p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-subtle transition-all duration-200"
           aria-label="Close"
         >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-          </svg>
+          <LuX className="w-4 h-4" />
         </button>
       )}
     </div>

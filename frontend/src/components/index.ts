@@ -8,4 +8,6 @@ export { Toast, Alert } from "./Toast";
 export { Skeleton, CardSkeleton, TableSkeleton, PlayerListSkeleton } from "./Skeleton";
 export { Tabs } from "./Tabs";
 export { EmptyState, NoDataEmptyState, NoPicksEmptyState, NoPlayersEmptyState, ErrorEmptyState } from "./EmptyState";
+export { PageLoader } from "./PageLoader";
+export { ErrorBoundary } from "./ErrorBoundary";
 

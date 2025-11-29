@@ -1,13 +1,6 @@
-import React from "react";
+import React, { memo } from "react";
 
-type BadgeVariant =
-  | "primary"
-  | "secondary"
-  | "success"
-  | "warning"
-  | "error"
-  | "info"
-  | "neutral";
+type BadgeVariant = "primary" | "secondary" | "success" | "warning" | "error" | "info" | "neutral";
 type BadgeSize = "sm" | "md";
 
 interface BadgeProps {
@@ -19,7 +12,7 @@ interface BadgeProps {
 }
 
 const variantStyles: Record<BadgeVariant, string> = {
-  primary: "bg-primary-soft text-primary",
+  primary: "bg-primary-soft text-primary-dark",
   secondary: "bg-secondary-soft text-secondary",
   success: "bg-success-soft text-success-text",
   warning: "bg-warning-soft text-warning-text",
@@ -30,30 +23,17 @@ const variantStyles: Record<BadgeVariant, string> = {
 
 const sizeStyles: Record<BadgeSize, string> = {
   sm: "px-1.5 py-0.5 text-tiny",
-  md: "px-2 py-0.5 text-caption",
+  md: "px-2 py-0.5 text-tiny",
 };
 
-export const Badge: React.FC<BadgeProps> = ({
-  variant = "neutral",
-  size = "sm",
-  children,
-  className = "",
-  icon,
-}) => {
-  return (
-    <span
-      className={`
-        inline-flex items-center gap-1 font-medium rounded-badge
-        ${variantStyles[variant]}
-        ${sizeStyles[size]}
-        ${className}
-      `}
-    >
-      {icon && <span className="shrink-0">{icon}</span>}
-      {children}
-    </span>
-  );
-};
+export const Badge: React.FC<BadgeProps> = memo(({ variant = "neutral", size = "sm", children, className = "", icon }) => (
+  <span className={`inline-flex items-center gap-0.5 font-medium rounded-badge ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}>
+    {icon && <span className="shrink-0">{icon}</span>}
+    {children}
+  </span>
+));
+
+Badge.displayName = "Badge";
 
 export default Badge;
 

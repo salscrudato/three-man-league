@@ -8,11 +8,17 @@
     "sourceMap": true,
     "strict": true,
     "target": "ES2022",
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "rootDir": "..",
+    "baseUrl": "..",
+    "paths": {
+      "@shared/*": ["shared/*"]
+    }
   },
   "compileOnSave": true,
   "include": [
-    "src"
+    "src",
+    "../shared"
   ]
 }
 

@@ -7,7 +7,8 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/AuthContext";
 import { useLeague } from "../../league/LeagueContext";
 import { apiPost, getErrorMessage } from "../../lib/api";
-import { LuArrowLeft, LuCopy, LuCheck, LuRefreshCw, LuUsers, LuSettings, LuDollarSign, LuLock, LuLockOpen, LuCalendar, LuChevronRight } from "react-icons/lu";
+import { mapLeagueMember, mapDocs } from "../../lib/firestore";
+import { LuArrowLeft, LuCopy, LuCheck, LuRefreshCw, LuUsers, LuSettings, LuDollarSign, LuLock, LuLockOpen, LuCalendar, LuChevronRight, LuGlobe, LuEye, LuEyeOff } from "react-icons/lu";
 import type { LeagueMember } from "../../types";
 import { collection, getDocs, query, where } from "firebase/firestore";
 import { db } from "../../firebase";
@@ -29,6 +30,9 @@ export const LeagueSettingsPage: React.FC = () => {
   const [editingName, setEditingName] = useState(false);
   const [newName, setNewName] = useState("");
   const [membershipLocked, setMembershipLocked] = useState(false);
+  const [isPublic, setIsPublic] = useState(true);
+  const [passcode, setPasscode] = useState("");
+  const [showPasscode, setShowPasscode] = useState(false);
 
   // Load members
   useEffect(() => {
@@ -41,11 +45,8 @@ export const LeagueSettingsPage: React.FC = () => {
         const q = query(membersRef, where("isActive", "==", true));
         const snap = await getDocs(q);
         
-        const memberList: LeagueMember[] = snap.docs.map(doc => ({
-          userId: doc.id,
-          ...doc.data(),
-        } as LeagueMember));
-        
+        const memberList = mapDocs(snap.docs, mapLeagueMember);
+
         setMembers(memberList.sort((a, b) => {
           // Owner first, then by name
           if (a.role === "owner") return -1;
@@ -67,34 +68,24 @@ export const LeagueSettingsPage: React.FC = () => {
     if (activeLeague) {
       setNewName(activeLeague.name);
       setMembershipLocked(activeLeague.membershipLocked || false);
+      setIsPublic(activeLeague.isPublic ?? true);
+      setPasscode(activeLeague.passcode || "");
     }
   }, [activeLeague]);
 
-  // Redirect if not owner
   if (userRole !== "owner") {
     return (
-      <div className="max-w-lg mx-auto text-center py-12">
-        <LuLock className="w-12 h-12 text-text-muted mx-auto mb-4" />
-        <h1 className="text-section-title font-bold text-text-primary mb-2">Access Denied</h1>
-        <p className="text-body text-text-secondary mb-6">
-          Only the league owner can access settings.
-        </p>
-        <button
-          onClick={() => navigate(-1)}
-          className="px-6 py-3 bg-primary text-white rounded-button font-medium hover:bg-primary-hover transition-colors"
-        >
-          Go Back
-        </button>
+      <div className="max-w-xs mx-auto text-center py-6">
+        <LuLock className="w-8 h-8 text-text-muted mx-auto mb-2" />
+        <h1 className="text-body-sm font-semibold text-text-primary mb-0.5">Access Denied</h1>
+        <p className="text-tiny text-text-secondary mb-3">Only the league owner can access settings.</p>
+        <button onClick={() => navigate(-1)} className="px-3 py-1.5 bg-primary text-white rounded-md text-body-sm font-medium hover:bg-primary-hover transition-colors">Go Back</button>
       </div>
     );
   }
 
   if (!activeLeague) {
-    return (
-      <div className="max-w-lg mx-auto text-center py-12">
-        <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
-      </div>
-    );
+    return <div className="max-w-xs mx-auto text-center py-6"><div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" /></div>;
   }
 
   const handleCopyCode = async () => {
@@ -164,178 +155,186 @@ export const LeagueSettingsPage: React.FC = () => {
     }
   };
 
+  const handleTogglePublic = async () => {
+    if (!user || !activeLeagueId) return;
+
+    // If making private, require a passcode
+    if (isPublic && !passcode) {
+      setError("Please set a passcode before making the league private");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      await apiPost("/updateLeagueSettings", {
+        leagueId: activeLeagueId,
+        isPublic: !isPublic,
+        passcode: !isPublic ? undefined : passcode, // Include passcode when making private
+      }, user);
+      setIsPublic(!isPublic);
+      await refreshActiveLeague();
+      setSuccessMessage(isPublic ? "League is now private" : "League is now public");
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSavePasscode = async () => {
+    if (!user || !activeLeagueId) return;
+
+    if (passcode.length < 4) {
+      setError("Passcode must be at least 4 characters");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+
+    try {
+      await apiPost("/updateLeagueSettings", { leagueId: activeLeagueId, passcode }, user);
+      await refreshActiveLeague();
+      setSuccessMessage("Passcode updated!");
+      setTimeout(() => setSuccessMessage(null), 3000);
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
-    <div className="max-w-2xl mx-auto">
-      {/* Header */}
-      <div className="mb-8">
-        <button
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-2 text-body-sm text-text-secondary hover:text-text-primary mb-4"
-        >
-          <LuArrowLeft className="w-4 h-4" />
-          Back
+    <div className="max-w-md mx-auto">
+      <div className="mb-4">
+        <button onClick={() => navigate(-1)} className="flex items-center gap-1 text-tiny text-text-secondary hover:text-text-primary mb-2">
+          <LuArrowLeft className="w-3 h-3" /> Back
         </button>
-        <h1 className="text-page-title font-bold text-text-primary">League Settings</h1>
-        <p className="text-body text-text-secondary mt-1">{activeLeague.name}</p>
+        <h1 className="text-section-title text-text-primary">League Settings</h1>
+        <p className="text-tiny text-text-muted mt-0.5">{activeLeague.name}</p>
       </div>
 
-      {/* Messages */}
-      {error && (
-        <div className="mb-6 p-4 bg-danger/10 border border-danger/20 rounded-card text-danger text-body-sm">
-          {error}
-        </div>
-      )}
-      {successMessage && (
-        <div className="mb-6 p-4 bg-success/10 border border-success/20 rounded-card text-success text-body-sm">
-          {successMessage}
-        </div>
-      )}
+      {error && <div className="mb-3 p-2 bg-error-soft border border-error/20 rounded-md text-error text-tiny">{error}</div>}
+      {successMessage && <div className="mb-3 p-2 bg-success/10 border border-success/20 rounded-md text-success text-tiny">{successMessage}</div>}
 
-      <div className="space-y-6">
-        {/* League Name */}
-        <div className="bg-surface rounded-card border border-border p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <LuSettings className="w-5 h-5 text-primary" />
-            <h2 className="text-body font-semibold text-text-primary">General</h2>
+      <div className="space-y-3">
+        <div className="bg-white rounded-lg border border-border/40 p-3">
+          <div className="flex items-center gap-1 mb-2">
+            <LuSettings className="w-3.5 h-3.5 text-primary" />
+            <h2 className="text-body-sm font-medium text-text-primary">General</h2>
           </div>
-
-          <div className="space-y-4">
+          <div className="space-y-2">
             <div>
-              <label className="block text-body-sm font-medium text-text-primary mb-2">
-                League Name
-              </label>
+              <label className="block text-tiny font-medium text-text-primary mb-1">Name</label>
               {editingName ? (
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={newName}
-                    onChange={(e) => setNewName(e.target.value)}
-                    className="flex-1 px-4 py-2 bg-surface border border-border rounded-button text-text-primary focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                    maxLength={50}
-                    autoFocus
-                  />
-                  <button
-                    onClick={handleSaveName}
-                    disabled={saving || newName.trim().length < 2}
-                    className="px-4 py-2 bg-primary text-white rounded-button font-medium hover:bg-primary-hover transition-colors disabled:opacity-50"
-                  >
-                    {saving ? "..." : "Save"}
-                  </button>
-                  <button
-                    onClick={() => { setEditingName(false); setNewName(activeLeague.name); }}
-                    className="px-4 py-2 bg-subtle text-text-secondary rounded-button font-medium hover:bg-border transition-colors"
-                  >
-                    Cancel
-                  </button>
+                <div className="flex gap-1.5">
+                  <input type="text" value={newName} onChange={(e) => setNewName(e.target.value)}
+                    className="flex-1 px-2 py-1 bg-white border border-border/40 rounded-md text-body-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/15 focus:border-primary" maxLength={50} autoFocus />
+                  <button onClick={handleSaveName} disabled={saving || newName.trim().length < 2} className="px-2 py-1 bg-primary text-white rounded-md text-tiny font-medium hover:bg-primary-hover disabled:opacity-50">{saving ? "..." : "Save"}</button>
+                  <button onClick={() => { setEditingName(false); setNewName(activeLeague.name); }} className="px-2 py-1 bg-subtle text-text-secondary rounded-md text-tiny font-medium hover:bg-border">Cancel</button>
                 </div>
               ) : (
                 <div className="flex items-center justify-between">
-                  <span className="text-body text-text-primary">{activeLeague.name}</span>
-                  <button
-                    onClick={() => setEditingName(true)}
-                    className="text-body-sm text-primary hover:text-primary-hover font-medium"
-                  >
-                    Edit
-                  </button>
+                  <span className="text-body-sm text-text-primary">{activeLeague.name}</span>
+                  <button onClick={() => setEditingName(true)} className="text-tiny text-primary hover:text-primary-hover font-medium">Edit</button>
                 </div>
               )}
             </div>
-
-            <div className="flex items-center justify-between pt-4 border-t border-border">
+            <div className="flex items-center justify-between pt-2 border-t border-border/30">
               <div>
-                <p className="text-body-sm font-medium text-text-primary">Lock Membership</p>
-                <p className="text-caption text-text-muted">Prevent new members from joining</p>
+                <p className="text-tiny font-medium text-text-primary">Lock Membership</p>
+                <p className="text-tiny text-text-muted">Prevent new members</p>
               </div>
-              <button
-                onClick={handleToggleMembershipLock}
-                disabled={saving}
-                className={`flex items-center gap-2 px-4 py-2 rounded-button font-medium transition-colors ${
-                  membershipLocked
-                    ? "bg-warning/10 text-warning hover:bg-warning/20"
-                    : "bg-subtle text-text-secondary hover:bg-border"
-                }`}
-              >
-                {membershipLocked ? <LuLock className="w-4 h-4" /> : <LuLockOpen className="w-4 h-4" />}
+              <button onClick={handleToggleMembershipLock} disabled={saving}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-tiny font-medium ${membershipLocked ? "bg-warning/10 text-warning" : "bg-subtle text-text-secondary hover:bg-border"}`}>
+                {membershipLocked ? <LuLock className="w-3 h-3" /> : <LuLockOpen className="w-3 h-3" />}
                 {membershipLocked ? "Locked" : "Open"}
               </button>
             </div>
           </div>
         </div>
 
-        {/* Join Code */}
-        <div className="bg-surface rounded-card border border-border p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <LuUsers className="w-5 h-5 text-primary" />
-            <h2 className="text-body font-semibold text-text-primary">Invite Members</h2>
+        <div className="bg-white rounded-lg border border-border/40 p-3">
+          <div className="flex items-center gap-1 mb-2">
+            <LuGlobe className="w-3.5 h-3.5 text-primary" />
+            <h2 className="text-body-sm font-medium text-text-primary">Visibility</h2>
           </div>
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-body-sm font-medium text-text-primary mb-2">
-                Join Code
-              </label>
-              <div className="flex items-center gap-2">
-                <code className="flex-1 px-4 py-3 bg-subtle border border-border rounded-button text-center text-section-title font-mono font-bold text-primary tracking-widest">
-                  {activeLeague.joinCode}
-                </code>
-                <button
-                  onClick={handleCopyCode}
-                  className="p-3 bg-subtle border border-border rounded-button hover:bg-border transition-colors"
-                  aria-label="Copy code"
-                >
-                  {copied ? <LuCheck className="w-5 h-5 text-success" /> : <LuCopy className="w-5 h-5 text-text-secondary" />}
-                </button>
-                <button
-                  onClick={handleRegenerateCode}
-                  disabled={regenerating}
-                  className="p-3 bg-subtle border border-border rounded-button hover:bg-border transition-colors disabled:opacity-50"
-                  aria-label="Regenerate code"
-                >
-                  <LuRefreshCw className={`w-5 h-5 text-text-secondary ${regenerating ? "animate-spin" : ""}`} />
-                </button>
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-tiny font-medium text-text-primary">{isPublic ? "Public" : "Private"}</p>
+                <p className="text-tiny text-text-secondary">{isPublic ? "Anyone can join" : "Passcode required"}</p>
               </div>
-              <p className="mt-2 text-caption text-text-muted">
-                Share this code with friends to invite them to your league.
-              </p>
+              <button onClick={handleTogglePublic} disabled={saving || (!isPublic && !passcode)}
+                className={`flex items-center gap-1 px-2 py-1 rounded-md text-tiny font-medium ${isPublic ? "bg-success/10 text-success" : "bg-warning/10 text-warning"}`}>
+                {isPublic ? <LuGlobe className="w-3 h-3" /> : <LuLock className="w-3 h-3" />}
+                {isPublic ? "Public" : "Private"}
+              </button>
             </div>
+            {!isPublic && (
+              <div>
+                <label className="block text-tiny font-medium text-text-primary mb-1">Passcode</label>
+                <div className="flex items-center gap-1.5">
+                  <div className="relative flex-1">
+                    <input type={showPasscode ? "text" : "password"} value={passcode} onChange={(e) => setPasscode(e.target.value)} placeholder="Enter passcode"
+                      className="w-full px-2 py-1 bg-white border border-border/40 rounded-md text-body-sm text-text-primary focus:outline-none focus:ring-2 focus:ring-primary/15 focus:border-primary pr-7" maxLength={20} />
+                    <button type="button" onClick={() => setShowPasscode(!showPasscode)} className="absolute right-1.5 top-1/2 -translate-y-1/2 text-text-muted hover:text-text-secondary">
+                      {showPasscode ? <LuEyeOff className="w-3 h-3" /> : <LuEye className="w-3 h-3" />}
+                    </button>
+                  </div>
+                  <button onClick={handleSavePasscode} disabled={saving || passcode.length < 4} className="px-2 py-1 bg-primary text-white rounded-md text-tiny font-medium hover:bg-primary-hover disabled:opacity-50">{saving ? "..." : "Save"}</button>
+                </div>
+                <p className="mt-0.5 text-tiny text-text-muted">Share with invitees.</p>
+              </div>
+            )}
           </div>
         </div>
 
-        {/* Members */}
-        <div className="bg-surface rounded-card border border-border p-6">
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-2">
-              <LuUsers className="w-5 h-5 text-primary" />
-              <h2 className="text-body font-semibold text-text-primary">Members</h2>
-            </div>
-            <span className="text-body-sm text-text-muted">{members.length} members</span>
+        <div className="bg-white rounded-lg border border-border/40 p-3">
+          <div className="flex items-center gap-1 mb-2">
+            <LuUsers className="w-3.5 h-3.5 text-primary" />
+            <h2 className="text-body-sm font-medium text-text-primary">Invite</h2>
           </div>
-
-          {loadingMembers ? (
-            <div className="flex justify-center py-8">
-              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <div>
+            <label className="block text-tiny font-medium text-text-primary mb-1">Join Code</label>
+            <div className="flex items-center gap-1.5">
+              <code className="flex-1 px-2.5 py-1.5 bg-subtle/60 border border-border/30 rounded-md text-center text-body-sm font-mono font-semibold text-primary tracking-widest">{activeLeague.joinCode}</code>
+              <button onClick={handleCopyCode} className="p-1.5 bg-subtle/60 border border-border/30 rounded-md hover:bg-border transition-colors">
+                {copied ? <LuCheck className="w-3.5 h-3.5 text-success" /> : <LuCopy className="w-3.5 h-3.5 text-text-secondary" />}
+              </button>
+              <button onClick={handleRegenerateCode} disabled={regenerating} className="p-1.5 bg-subtle/60 border border-border/30 rounded-md hover:bg-border disabled:opacity-50">
+                <LuRefreshCw className={`w-3.5 h-3.5 text-text-secondary ${regenerating ? "animate-spin" : ""}`} />
+              </button>
             </div>
+            <p className="mt-0.5 text-tiny text-text-muted">Share to invite friends.</p>
+          </div>
+        </div>
+
+        <div className="bg-white rounded-lg border border-border/40 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1">
+              <LuUsers className="w-3.5 h-3.5 text-primary" />
+              <h2 className="text-body-sm font-medium text-text-primary">Members</h2>
+            </div>
+            <span className="text-tiny text-text-muted">{members.length}</span>
+          </div>
+          {loadingMembers ? (
+            <div className="flex justify-center py-4"><div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" /></div>
           ) : (
-            <div className="space-y-2">
+            <div className="space-y-1">
               {members.map((member) => (
-                <div
-                  key={member.userId}
-                  className="flex items-center gap-3 p-3 bg-subtle rounded-button"
-                >
-                  <div className="w-8 h-8 rounded-full bg-primary-soft text-primary flex items-center justify-center text-caption font-semibold">
+                <div key={member.userId} className="flex items-center gap-1.5 p-1.5 bg-subtle/60 rounded-md">
+                  <div className="w-6 h-6 rounded-full bg-primary-soft text-primary flex items-center justify-center text-tiny font-semibold">
                     {member.displayName?.split(" ").map((n) => n[0]).join("").toUpperCase().slice(0, 2) || "?"}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="text-body-sm font-medium text-text-primary truncate">
-                      {member.displayName}
-                    </p>
-                    <p className="text-caption text-text-muted truncate">{member.email}</p>
+                    <p className="text-tiny font-medium text-text-primary truncate">{member.displayName}</p>
+                    <p className="text-tiny text-text-muted truncate">{member.email}</p>
                   </div>
-                  <span className={`text-caption font-medium px-2 py-1 rounded ${
-                    member.role === "owner"
-                      ? "bg-primary-soft text-primary"
-                      : "bg-subtle text-text-muted"
-                  }`}>
+                  <span className={`text-tiny font-medium px-1 py-0.5 rounded ${member.role === "owner" ? "bg-primary-soft text-primary" : "bg-subtle text-text-muted"}`}>
                     {member.role === "owner" ? "Owner" : "Member"}
                   </span>
                 </div>
@@ -344,58 +343,34 @@ export const LeagueSettingsPage: React.FC = () => {
           )}
         </div>
 
-        {/* League Info */}
-        <div className="bg-surface rounded-card border border-border p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <LuDollarSign className="w-5 h-5 text-primary" />
-            <h2 className="text-body font-semibold text-text-primary">League Info</h2>
+        <div className="bg-white rounded-lg border border-border/40 p-3">
+          <div className="flex items-center gap-1 mb-2">
+            <LuDollarSign className="w-3.5 h-3.5 text-primary" />
+            <h2 className="text-body-sm font-medium text-text-primary">Info</h2>
           </div>
-
-          <div className="grid grid-cols-2 gap-4 text-body-sm">
-            <div>
-              <p className="text-text-muted">Season</p>
-              <p className="font-medium text-text-primary">{activeLeague.season}</p>
-            </div>
-            <div>
-              <p className="text-text-muted">Entry Fee</p>
-              <p className="font-medium text-text-primary">${activeLeague.entryFee}</p>
-            </div>
-            <div>
-              <p className="text-text-muted">Total Pot</p>
-              <p className="font-medium text-text-primary">${activeLeague.payoutTotal?.toLocaleString() || 0}</p>
-            </div>
-            <div>
-              <p className="text-text-muted">Status</p>
-              <p className="font-medium text-text-primary capitalize">{activeLeague.status}</p>
-            </div>
+          <div className="grid grid-cols-2 gap-2 text-tiny">
+            <div><p className="text-text-muted">Season</p><p className="font-medium text-text-primary">{activeLeague.season}</p></div>
+            <div><p className="text-text-muted">Entry</p><p className="font-medium text-text-primary">${activeLeague.entryFee}</p></div>
+            <div><p className="text-text-muted">Pot</p><p className="font-medium text-text-primary">${activeLeague.payoutTotal?.toLocaleString() || 0}</p></div>
+            <div><p className="text-text-muted">Status</p><p className="font-medium text-text-primary capitalize">{activeLeague.status}</p></div>
           </div>
         </div>
 
-        {/* Mid-Season Setup */}
-        <div className="bg-surface rounded-card border border-border p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <LuCalendar className="w-5 h-5 text-primary" />
-            <h2 className="text-body font-semibold text-text-primary">Mid-Season Setup</h2>
+        <div className="bg-white rounded-lg border border-border/40 p-3">
+          <div className="flex items-center gap-1 mb-2">
+            <LuCalendar className="w-3.5 h-3.5 text-primary" />
+            <h2 className="text-body-sm font-medium text-text-primary">Mid-Season Setup</h2>
           </div>
-
-          <p className="text-body-sm text-text-secondary mb-4">
-            Import historical picks and scores from a spreadsheet to continue an existing league mid-season.
-          </p>
-
-          <button
-            onClick={() => navigate("/admin/backfill")}
-            className="w-full flex items-center justify-between p-4 bg-subtle rounded-button hover:bg-border transition-colors"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-full bg-primary-soft text-primary flex items-center justify-center">
-                <LuCalendar className="w-5 h-5" />
-              </div>
+          <p className="text-tiny text-text-secondary mb-2">Import historical picks and scores.</p>
+          <button onClick={() => navigate("/admin/backfill")} className="w-full flex items-center justify-between p-2 bg-subtle/60 rounded-md hover:bg-border transition-colors">
+            <div className="flex items-center gap-1.5">
+              <div className="w-6 h-6 rounded-full bg-primary-soft text-primary flex items-center justify-center"><LuCalendar className="w-3 h-3" /></div>
               <div className="text-left">
-                <p className="text-body font-medium text-text-primary">Backfill Wizard</p>
-                <p className="text-caption text-text-muted">Enter historical picks and compute scores</p>
+                <p className="text-body-sm font-medium text-text-primary">Backfill Wizard</p>
+                <p className="text-tiny text-text-muted">Enter historical data</p>
               </div>
             </div>
-            <LuChevronRight className="w-5 h-5 text-text-muted" />
+            <LuChevronRight className="w-3.5 h-3.5 text-text-muted" />
           </button>
         </div>
       </div>

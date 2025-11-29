@@ -1,79 +1,66 @@
-import React, { useMemo } from "react";
-import { Card, CardHeader, Badge } from "../../components";
-import { PAYOUT_STRUCTURE, TOTAL_POT, ENTRY_FEE } from "../../types";
-import { FiTarget, FiRefreshCw } from "react-icons/fi";
-import { LuChartBar, LuTrophy, LuRocket, LuDollarSign, LuMedal } from "react-icons/lu";
-import type { IconType } from "react-icons";
+import React, { useMemo, useState } from "react";
+import { Card } from "../../components";
+import { PAYOUT_STRUCTURE, TOTAL_POT, ENTRY_FEE, payoutEntriesToRecord } from "../../types";
+import {
+  LuCalendarDays,
+  LuTrophy,
+  LuTarget,
+  LuTimer,
+  LuBan,
+  LuZap,
+  LuDollarSign,
+  LuChevronRight,
+  LuCheck,
+  LuStar
+} from "react-icons/lu";
 import { useLeague } from "../../league/LeagueContext";
 
-interface RuleSection {
-  icon: IconType;
-  title: string;
-  items: string[];
-}
+const StepNumber: React.FC<{ num: number }> = ({ num }) => (
+  <div className="w-5 h-5 rounded-full bg-primary text-white flex items-center justify-center text-tiny font-semibold">{num}</div>
+);
 
-const RULES: RuleSection[] = [
-  {
-    icon: FiTarget,
-    title: "Weekly Picks",
-    items: [
-      "Select 1 QB, 1 RB, and 1 WR each week",
-      "Picks lock 1 hour before each player's game kickoff",
-      "You can change your picks until they lock",
-      "Locked picks cannot be modified",
-    ],
-  },
-  {
-    icon: FiRefreshCw,
-    title: "One-and-Done Rule",
-    items: [
-      "Each player can only be used ONCE per season",
-      "Once you pick a player, they're marked as 'USED'",
-      "Used players will score 0 points if picked again",
-      "Plan your picks strategically across all 18 weeks",
-    ],
-  },
-  {
-    icon: LuChartBar,
-    title: "Scoring System",
-    items: [
-      "DraftKings PPR scoring format",
-      "Passing TD: 4 pts | Rushing/Receiving TD: 6 pts",
-      "Passing yards: 0.04 pts/yard (1 pt per 25 yards)",
-      "Rushing/Receiving yards: 0.1 pts/yard (1 pt per 10 yards)",
-      "Reception: 1 pt (PPR) | 2-pt Conversion: 2 pts",
-      "Interception: -1 pt | Fumble lost: -1 pt",
-      "Bonus: 300+ pass yds, 100+ rush/rec yds: +3 pts each",
-    ],
-  },
-  {
-    icon: LuTrophy,
-    title: "Season Standings",
-    items: [
-      "Total points accumulated across all weeks",
-      "Weekly scores are added to your season total",
-      "Final standings determine prize payouts",
-      "Tiebreaker: Most weekly wins, then head-to-head",
-    ],
-  },
-];
+const StatCard: React.FC<{ icon: React.ReactNode; label: string; value: string; accent?: boolean }> = ({ label, value, accent }) => (
+  <div className={`rounded-md p-2.5 ${accent ? "bg-primary text-white" : "bg-white border border-border/40"}`}>
+    <div className={`text-tiny uppercase tracking-wide mb-0.5 ${accent ? "text-white/70" : "text-text-muted"}`}>{label}</div>
+    <div className={`text-body-sm font-semibold ${accent ? "text-white" : "text-text-primary"}`}>{value}</div>
+  </div>
+);
+
+const ScoringItem: React.FC<{ label: string; points: string; highlight?: boolean }> = ({ label, points, highlight }) => (
+  <div className={`flex items-center justify-between px-2 py-1.5 rounded ${highlight ? "bg-primary-soft/80" : "bg-subtle/60"}`}>
+    <span className={`text-tiny ${highlight ? "text-primary font-medium" : "text-text-secondary"}`}>{label}</span>
+    <span className={`text-tiny font-semibold ${highlight ? "text-primary" : "text-text-primary"}`}>{points}</span>
+  </div>
+);
+
+const ExpandableSection: React.FC<{ title: string; icon: React.ReactNode; children: React.ReactNode; defaultOpen?: boolean }> = ({ title, icon, children, defaultOpen = false }) => {
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+  return (
+    <Card padding="none" className="overflow-hidden">
+      <button onClick={() => setIsOpen(!isOpen)} className="w-full flex items-center justify-between px-2.5 py-2 hover:bg-subtle/40 transition-colors">
+        <div className="flex items-center gap-1.5">
+          <div className="w-6 h-6 rounded-md bg-primary-soft text-primary flex items-center justify-center">{icon}</div>
+          <span className="text-body-sm font-medium text-text-primary">{title}</span>
+        </div>
+        <LuChevronRight className={`w-3.5 h-3.5 text-text-muted transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`} />
+      </button>
+      <div className={`overflow-hidden transition-all duration-200 ${isOpen ? "max-h-[500px]" : "max-h-0"}`}>
+        <div className="px-2.5 pb-2.5 border-t border-border/30">{children}</div>
+      </div>
+    </Card>
+  );
+};
 
 export const RulesPage: React.FC = () => {
   const { activeLeague } = useLeague();
 
-  // Use league-specific values if available, otherwise defaults
   const entryFee = activeLeague?.entryFee ?? ENTRY_FEE;
   const totalPot = activeLeague?.payoutTotal ?? TOTAL_POT;
 
-  // Build payout structure from league data or use defaults
   const leaguePayoutStructure = activeLeague?.payoutStructure;
   const payoutStructure = useMemo(() => {
     if (leaguePayoutStructure && leaguePayoutStructure.length > 0) {
-      const structure: Record<number, number> = {};
-      leaguePayoutStructure.forEach(p => {
-        structure[p.rank] = p.amount;
-      });
-      return structure;
+      return payoutEntriesToRecord(leaguePayoutStructure);
     }
     return PAYOUT_STRUCTURE;
   }, [leaguePayoutStructure]);
@@ -81,170 +68,112 @@ export const RulesPage: React.FC = () => {
   const payingPlaces = Object.keys(payoutStructure).length;
 
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      {/* Page header */}
-      <div>
-        <h1 className="text-page-title text-text-primary">Rules & Scoring</h1>
-        <p className="text-body text-text-secondary mt-1">
-          Everything you need to know about the Three-Man League
-        </p>
+    <div className="space-y-3 max-w-xl mx-auto">
+      <div className="text-center py-3">
+        <div className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-primary text-white mb-2">
+          <LuTarget className="w-5 h-5" />
+        </div>
+        <h1 className="text-section-title text-text-primary mb-0.5">How to Play</h1>
+        <p className="text-body-sm text-text-muted">Master Three-Man League in 3 steps</p>
       </div>
 
-      {/* Quick Start Guide */}
-      <Card className="bg-gradient-to-br from-primary-soft to-emerald-50 border-primary/20">
-        <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-            <LuRocket className="w-6 h-6 text-primary" />
+      <Card padding="none" className="overflow-hidden">
+        <div className="bg-primary px-2.5 py-1.5">
+          <h2 className="text-body-sm font-medium text-white flex items-center gap-1">
+            <LuZap className="w-3.5 h-3.5" /> The Game
+          </h2>
+        </div>
+        <div className="p-2.5 space-y-2.5">
+          <div className="flex gap-2 items-start">
+            <StepNumber num={1} />
+            <div className="flex-1">
+              <h4 className="text-body-sm font-medium text-text-primary">Pick Your Squad</h4>
+              <p className="text-tiny text-text-secondary">Select 3 players each week: 1 QB, 1 RB, 1 WR</p>
+              <div className="flex gap-1 mt-1">
+                <span className="px-1 py-0.5 bg-rose-50/80 text-rose-600 rounded text-tiny font-medium">QB</span>
+                <span className="px-1 py-0.5 bg-blue-50/80 text-blue-600 rounded text-tiny font-medium">RB</span>
+                <span className="px-1 py-0.5 bg-amber-50/80 text-amber-600 rounded text-tiny font-medium">WR</span>
+              </div>
+            </div>
           </div>
-          <div className="flex-1">
-            <h2 className="text-card-title font-semibold text-text-primary mb-2">Quick Start Guide</h2>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <div className="flex items-start gap-2">
-                <Badge variant="primary" size="sm">1</Badge>
-                <div>
-                  <p className="text-body-sm font-medium text-text-primary">Make Your Picks</p>
-                  <p className="text-caption text-text-secondary">Choose 1 QB, 1 RB, 1 WR each week</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <Badge variant="primary" size="sm">2</Badge>
-                <div>
-                  <p className="text-body-sm font-medium text-text-primary">Watch Games</p>
-                  <p className="text-caption text-text-secondary">Picks lock 1 hour before kickoff</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <Badge variant="primary" size="sm">3</Badge>
-                <div>
-                  <p className="text-body-sm font-medium text-text-primary">Climb the Standings</p>
-                  <p className="text-caption text-text-secondary">Top 7 finishers win cash prizes</p>
-                </div>
-              </div>
+          <div className="flex gap-2 items-start">
+            <StepNumber num={2} />
+            <div className="flex-1">
+              <h4 className="text-body-sm font-medium text-text-primary flex items-center gap-1">One-and-Done <LuBan className="w-3 h-3 text-error" /></h4>
+              <p className="text-tiny text-text-secondary">Each player can only be used once per season</p>
+            </div>
+          </div>
+          <div className="flex gap-2 items-start">
+            <StepNumber num={3} />
+            <div className="flex-1">
+              <h4 className="text-body-sm font-medium text-text-primary flex items-center gap-1">Beat the Clock <LuTimer className="w-3 h-3 text-primary" /></h4>
+              <p className="text-tiny text-text-secondary">Picks lock 1 hour before kickoff</p>
             </div>
           </div>
         </div>
       </Card>
 
-      {/* Quick stats */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-        <Card className="text-center">
-          <div className="text-caption text-text-muted uppercase tracking-wide">Entry Fee</div>
-          <div className="text-section-title font-bold text-text-primary mt-1">${entryFee}</div>
-        </Card>
-        <Card className="text-center">
-          <div className="text-caption text-text-muted uppercase tracking-wide">Total Pot</div>
-          <div className="text-section-title font-bold text-primary mt-1">${totalPot.toLocaleString()}</div>
-        </Card>
-        <Card className="text-center">
-          <div className="text-caption text-text-muted uppercase tracking-wide">Weeks</div>
-          <div className="text-section-title font-bold text-text-primary mt-1">18</div>
-        </Card>
-        <Card className="text-center">
-          <div className="text-caption text-text-muted uppercase tracking-wide">Positions</div>
-          <div className="text-section-title font-bold text-text-primary mt-1">QB/RB/WR</div>
-        </Card>
+      <div className="grid grid-cols-3 gap-1.5">
+        <StatCard icon={<LuDollarSign />} label="Entry" value={`$${entryFee}`} />
+        <StatCard icon={<LuTrophy />} label="Pool" value={`$${totalPot.toLocaleString()}`} accent />
+        <StatCard icon={<LuCalendarDays />} label="Weeks" value="18" />
       </div>
 
-      {/* Rules sections */}
-      <div className="grid gap-6 md:grid-cols-2">
-        {RULES.map((section) => {
-          const IconComponent = section.icon;
-          return (
-            <Card key={section.title}>
-              <div className="flex items-center gap-3 mb-4">
-                <IconComponent className="w-6 h-6 text-primary" />
-                <h2 className="text-card-title font-semibold text-text-primary">{section.title}</h2>
-              </div>
-              <ul className="space-y-2">
-                {section.items.map((item, idx) => (
-                  <li key={idx} className="flex items-start gap-2">
-                    <svg className="w-5 h-5 text-primary shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    <span className="text-body-sm text-text-secondary">{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          );
-        })}
-      </div>
-
-      {/* Payout structure */}
-      <Card>
-        <div className="flex items-center gap-3 mb-4">
-          <LuDollarSign className="w-6 h-6 text-primary" />
-          <div>
-            <h3 className="text-card-title font-semibold text-text-primary">Prize Payouts</h3>
-            <p className="text-body-sm text-text-secondary">Top {payingPlaces} finishers win cash prizes</p>
+      <div className="space-y-1.5">
+        <ExpandableSection title="Scoring" icon={<LuStar className="w-3.5 h-3.5" />} defaultOpen>
+          <p className="text-tiny text-text-secondary mb-1.5 mt-1.5">DraftKings PPR format</p>
+          <div className="grid grid-cols-2 gap-1">
+            <ScoringItem label="Passing TD" points="4 pts" />
+            <ScoringItem label="Rush/Rec TD" points="6 pts" highlight />
+            <ScoringItem label="Reception" points="1 pt" />
+            <ScoringItem label="Pass Yards" points="0.04/yd" />
+            <ScoringItem label="Rush/Rec Yards" points="0.1/yd" />
+            <ScoringItem label="100+ Bonus" points="3 pts" highlight />
+            <ScoringItem label="Interception" points="-1 pt" />
+            <ScoringItem label="Fumble Lost" points="-1 pt" />
           </div>
-        </div>
-        <div className={`grid grid-cols-2 sm:grid-cols-4 ${payingPlaces <= 4 ? 'lg:grid-cols-4' : 'lg:grid-cols-7'} gap-3`}>
-          {Object.entries(payoutStructure).map(([rank, amount]) => {
-            const rankNum = parseInt(rank);
-            const ordinalSuffix = (n: number) => {
-              const s = ["th", "st", "nd", "rd"];
-              const v = n % 100;
-              return n + (s[(v - 20) % 10] || s[v] || s[0]);
-            };
-            const ordinal = ordinalSuffix(rankNum);
-            const isTop3 = rankNum <= 3;
-            const medalColors = [
-              "text-yellow-500",
-              "text-gray-400",
-              "text-amber-600",
-            ];
-            return (
-              <div
-                key={rank}
-                className={`rounded-card p-4 text-center border transition-all ${
-                  isTop3
-                    ? "bg-gradient-to-br from-primary-soft to-emerald-50 border-primary/20 shadow-card"
-                    : "bg-subtle border-border"
-                }`}
-              >
-                {isTop3 && (
-                  <div className="flex justify-center mb-1">
-                    <LuMedal className={`w-5 h-5 ${medalColors[rankNum - 1]}`} />
+        </ExpandableSection>
+
+        <ExpandableSection title="Payouts" icon={<LuTrophy className="w-3.5 h-3.5" />}>
+          <p className="text-tiny text-text-secondary mb-1.5 mt-1.5">Top {payingPlaces} finishers win</p>
+          <div className="space-y-1">
+            {Object.entries(payoutStructure).slice(0, 7).map(([rank, amount]) => {
+              const rankNum = parseInt(rank);
+              const isTop3 = rankNum <= 3;
+              const medalColors: Record<number, string> = { 1: "bg-amber-400", 2: "bg-slate-400", 3: "bg-amber-600" };
+              return (
+                <div key={rank} className={`flex items-center justify-between px-2 py-1.5 rounded ${isTop3 ? "bg-primary-soft/60" : "bg-subtle/60"}`}>
+                  <div className="flex items-center gap-1.5">
+                    {isTop3 ? (
+                      <div className={`w-4 h-4 rounded ${medalColors[rankNum]} flex items-center justify-center text-white text-tiny font-semibold`}>{rankNum}</div>
+                    ) : (
+                      <div className="w-4 h-4 rounded bg-gray-200 flex items-center justify-center text-text-muted text-tiny">{rankNum}</div>
+                    )}
+                    <span className={`text-tiny ${isTop3 ? "text-text-primary font-medium" : "text-text-secondary"}`}>
+                      {rankNum === 1 ? "Champion" : rankNum === 2 ? "Runner-up" : rankNum === 3 ? "3rd" : `${rankNum}th`}
+                    </span>
                   </div>
-                )}
-                <div className={`text-caption font-medium ${isTop3 ? "text-primary" : "text-text-muted"}`}>
-                  {ordinal} Place
+                  <span className={`text-body-sm font-semibold ${isTop3 ? "text-primary" : "text-text-primary"}`}>${amount.toLocaleString()}</span>
                 </div>
-                <div className={`text-section-title font-bold mt-1 ${isTop3 ? "text-primary" : "text-text-primary"}`}>
-                  ${amount.toLocaleString()}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
+              );
+            })}
+          </div>
+        </ExpandableSection>
+      </div>
 
-      {/* FAQ */}
-      <Card>
-        <CardHeader title="❓ Frequently Asked Questions" />
-        <div className="mt-4 space-y-4">
-          <div>
-            <h3 className="text-body-sm font-semibold text-text-primary">What happens if I forget to make picks?</h3>
-            <p className="text-body-sm text-text-secondary mt-1">
-              If you don't make picks before games lock, you'll receive 0 points for that position for the week.
-            </p>
-          </div>
-          <div>
-            <h3 className="text-body-sm font-semibold text-text-primary">Can I change my picks after they lock?</h3>
-            <p className="text-body-sm text-text-secondary mt-1">
-              No, once a pick locks (1 hour before kickoff), it cannot be changed. Plan ahead!
-            </p>
-          </div>
-          <div>
-            <h3 className="text-body-sm font-semibold text-text-primary">What if my player gets injured during the game?</h3>
-            <p className="text-body-sm text-text-secondary mt-1">
-              You receive whatever points they scored before the injury. There are no substitutions.
-            </p>
-          </div>
+      <Card padding="sm" className="bg-amber-50/60 border-amber-100/60">
+        <h3 className="text-body-sm font-medium text-amber-800 mb-1.5 flex items-center gap-1">
+          <LuZap className="w-3.5 h-3.5" /> Pro Tips
+        </h3>
+        <div className="space-y-1">
+          {["Save elite players for favorable matchups", "Monitor injury reports before kickoff", "Diversify picks across teams"].map((tip, i) => (
+            <div key={i} className="flex items-start gap-1 text-tiny text-amber-900">
+              <LuCheck className="w-3 h-3 mt-0.5 text-amber-600 shrink-0" />
+              <span>{tip}</span>
+            </div>
+          ))}
         </div>
       </Card>
     </div>
   );
 };
-

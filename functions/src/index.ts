@@ -12,18 +12,22 @@ import {
   type SportsPlayer
 } from "./sportsApi.js";
 import { calculateDraftKingsPoints, mapSportsDbToStats } from "./scoring.js";
-import { setCors } from "./utils/http.js";
+import {
+  sendError,
+  sendSuccess,
+  handleAdminRequest,
+  handleAuthenticatedRequest,
+  getRequiredParam,
+} from "./utils/http.js";
 import * as admin from "firebase-admin";
 import type { EligiblePosition, Position, SeasonStats } from "./types.js";
-
-// Re-export AI chat function
-export { aiChat } from "./aiAssistant.js";
 
 // Re-export league management functions
 export {
   createLeague,
   joinLeague,
   getUserLeagues,
+  getAvailableLeagues,
   getLeagueDetails,
   updateLeagueSettings,
   regenerateJoinCode,
@@ -62,10 +66,10 @@ function getEligiblePositions(pos: Position): EligiblePosition[] {
 
 /**
  * Sync NFL schedule into Firestore.
+ * Protected by admin API key.
  */
 export const syncSchedule = onRequest(async (req, res) => {
-  setCors(res);
-  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+  if (!handleAdminRequest(req, res)) return;
 
   try {
     // First fetch teams to get team names
@@ -114,19 +118,19 @@ export const syncSchedule = onRequest(async (req, res) => {
       lastUpdated: new Date(),
     }, { merge: true });
 
-    res.status(200).send({ ok: true, count, currentWeek });
+    sendSuccess(res, { ok: true, count, currentWeek });
   } catch (err: unknown) {
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    res.status(500).send({ error: errorMessage });
+    sendError(res, 500, errorMessage);
   }
 });
 
 /**
  * Sync NFL players into Firestore.
+ * Protected by admin API key.
  */
 export const syncPlayers = onRequest(async (req, res) => {
-  setCors(res);
-  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+  if (!handleAdminRequest(req, res)) return;
 
   try {
     const players = await fetchAllNflPlayers();
@@ -161,11 +165,11 @@ export const syncPlayers = onRequest(async (req, res) => {
       await batch.commit();
     }
 
-    res.status(200).send({ ok: true, count });
+    sendSuccess(res, { ok: true, count });
   } catch (err: unknown) {
     console.error(err);
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    res.status(500).send({ error: errorMessage });
+    sendError(res, 500, errorMessage);
   }
 });
 
@@ -212,12 +216,12 @@ export const syncScheduleWeekly = onSchedule("0 6 * * 2", async () => {
  * Sync player season statistics from ESPN.
  * Updates each player with their YTD stats and calculated fantasy points.
  * Rate-limited to avoid overwhelming the ESPN API.
+ * Protected by admin API key.
  */
 export const syncPlayerStats = onRequest(
   { timeoutSeconds: 540 }, // 9 minutes
   async (req, res) => {
-    setCors(res);
-    if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+    if (!handleAdminRequest(req, res)) return;
 
     try {
       // Get all players from Firestore
@@ -286,11 +290,11 @@ export const syncPlayerStats = onRequest(
         }
       }
 
-      res.status(200).send({ ok: true, updated, failed, total: players.length });
+      sendSuccess(res, { ok: true, updated, failed, total: players.length });
     } catch (err: unknown) {
       console.error(err);
       const errorMessage = err instanceof Error ? err.message : "Unknown error";
-      res.status(500).send({ error: errorMessage });
+      sendError(res, 500, errorMessage);
     }
   }
 );
@@ -359,17 +363,14 @@ export const syncPlayerStatsDaily = onSchedule("0 5 * * *", async () => {
 
 /**
  * Score a week's picks for a league
+ * Protected by admin API key.
  */
 export const scoreWeek = onRequest(async (req, res) => {
-  setCors(res);
-  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+  if (!handleAdminRequest(req, res)) return;
 
-  const leagueId = (req.query.leagueId || req.body?.leagueId) as string;
-  const weekId = (req.query.weekId || req.body?.weekId) as string;
-  if (!leagueId || !weekId) {
-    res.status(400).send({ error: "leagueId and weekId required" });
-    return;
-  }
+  const leagueId = getRequiredParam(req, res, "leagueId");
+  const weekId = getRequiredParam(req, res, "weekId");
+  if (!leagueId || !weekId) return;
 
   try {
     // Mark week as scoring
@@ -467,11 +468,11 @@ export const scoreWeek = onRequest(async (req, res) => {
     // Mark week as final
     await weekRef.set({ status: "final" }, { merge: true });
 
-    res.status(200).send({ ok: true, scored: picksSnap.size });
+    sendSuccess(res, { ok: true, scored: picksSnap.size });
   } catch (err: unknown) {
     console.error(err);
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    res.status(500).send({ error: errorMessage });
+    sendError(res, 500, errorMessage);
   }
 });
 
@@ -479,32 +480,12 @@ export const scoreWeek = onRequest(async (req, res) => {
  * Submit picks for a user (with auth verification and position validation)
  */
 export const submitPicks = onRequest(async (req, res) => {
-  setCors(res);
-  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+  const auth = await handleAuthenticatedRequest(req, res, "POST");
+  if (!auth) return;
 
-  if (req.method !== "POST") {
-    res.status(405).send({ error: "POST only" });
-    return;
-  }
-
-  // Verify Firebase Auth token
-  const authHeader = req.headers.authorization;
-  let authUserId: string | null = null;
-
-  if (authHeader?.startsWith("Bearer ")) {
-    try {
-      const token = authHeader.slice(7);
-      const decoded = await admin.auth().verifyIdToken(token);
-      authUserId = decoded.uid;
-    } catch {
-      // Token verification failed - continue but compare with userId
-    }
-  }
-
-  const { leagueId, weekId, userId, picks } = req.body as {
+  const { leagueId, weekId, picks } = req.body as {
     leagueId: string;
     weekId: string;
-    userId: string;
     picks: {
       qbPlayerId?: string;
       qbGameId?: string;
@@ -515,16 +496,12 @@ export const submitPicks = onRequest(async (req, res) => {
     };
   };
 
-  if (!leagueId || !weekId || !userId) {
-    res.status(400).send({ error: "leagueId, weekId, userId required" });
+  if (!leagueId || !weekId) {
+    sendError(res, 400, "leagueId and weekId required");
     return;
   }
 
-  // If we have an auth token, verify it matches the userId
-  if (authUserId && authUserId !== userId) {
-    res.status(403).send({ error: "User ID mismatch with auth token" });
-    return;
-  }
+  const userId = auth.userId;
 
   const positions: ("qb" | "rb" | "wr")[] = ["qb", "rb", "wr"];
   const positionMap: Record<string, EligiblePosition> = { qb: "QB", rb: "RB", wr: "WR" };
@@ -636,11 +613,11 @@ export const submitPicks = onRequest(async (req, res) => {
       { merge: true }
     );
 
-    res.status(200).send({ ok: true, accepted, skipped });
+    sendSuccess(res, { ok: true, accepted, skipped });
   } catch (err: unknown) {
     console.error(err);
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    res.status(500).send({ error: errorMessage });
+    sendError(res, 500, errorMessage);
   }
 });
 
@@ -721,14 +698,10 @@ export const lockPicks = onSchedule("*/5 * * * *", async () => {
  * Compute season standings for a league
  */
 export const computeSeasonStandings = onRequest(async (req, res) => {
-  setCors(res);
-  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+  if (!handleAdminRequest(req, res)) return;
 
-  const leagueId = (req.query.leagueId || req.body?.leagueId) as string;
-  if (!leagueId) {
-    res.status(400).send({ error: "leagueId required" });
-    return;
-  }
+  const leagueId = getRequiredParam(req, res, "leagueId");
+  if (!leagueId) return;
 
   try {
     // Get all weeks
@@ -808,26 +781,23 @@ export const computeSeasonStandings = onRequest(async (req, res) => {
     }
 
     await batch.commit();
-    res.status(200).send({ ok: true, users: userIds.length });
+    sendSuccess(res, { ok: true, users: userIds.length });
   } catch (err: unknown) {
     console.error(err);
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    res.status(500).send({ error: errorMessage });
+    sendError(res, 500, errorMessage);
   }
 });
 
 /**
  * Initialize a league with weeks for the NFL season
+ * Protected by admin API key.
  */
 export const initializeLeague = onRequest(async (req, res) => {
-  setCors(res);
-  if (req.method === "OPTIONS") { res.status(204).send(""); return; }
+  if (!handleAdminRequest(req, res)) return;
 
-  const leagueId = (req.query.leagueId || req.body?.leagueId) as string;
-  if (!leagueId) {
-    res.status(400).send({ error: "leagueId required" });
-    return;
-  }
+  const leagueId = getRequiredParam(req, res, "leagueId");
+  if (!leagueId) return;
 
   try {
     const leagueRef = db.collection("leagues").doc(leagueId);
@@ -855,10 +825,10 @@ export const initializeLeague = onRequest(async (req, res) => {
     }
 
     await batch.commit();
-    res.status(200).send({ ok: true, leagueId });
+    sendSuccess(res, { ok: true, leagueId });
   } catch (err: unknown) {
     console.error(err);
     const errorMessage = err instanceof Error ? err.message : "Unknown error";
-    res.status(500).send({ error: errorMessage });
+    sendError(res, 500, errorMessage);
   }
 });

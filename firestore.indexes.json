@@ -39,6 +39,28 @@
         { "fieldPath": "leagueId", "order": "ASCENDING" },
         { "fieldPath": "season", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "games",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "weekNumber", "order": "ASCENDING" },
+        { "fieldPath": "kickoffTime", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "scores",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "totalPoints", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "seasonStandings",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "seasonTotalPoints", "order": "DESCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []

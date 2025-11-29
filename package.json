@@ -1,0 +1,38 @@
+{
+  "name": "three-man-league",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Fantasy football pick 'em game with Google sign-in, leagues, and weekly picks",
+  "scripts": {
+    "dev": "cd frontend && npm run dev",
+    "build": "npm run build:frontend && npm run build:functions",
+    "build:frontend": "cd frontend && npm run build",
+    "build:functions": "cd functions && npm run build",
+    "lint": "npm run lint:frontend && npm run lint:functions",
+    "lint:frontend": "cd frontend && npm run lint",
+    "lint:functions": "cd functions && npm run lint",
+    "test": "npm run test:frontend && npm run test:functions",
+    "test:frontend": "cd frontend && npm run test:run",
+    "test:functions": "cd functions && npm test",
+    "typecheck": "npm run typecheck:frontend && npm run typecheck:functions",
+    "typecheck:frontend": "cd frontend && npx tsc --noEmit",
+    "typecheck:functions": "cd functions && npx tsc --noEmit",
+    "deploy": "firebase deploy",
+    "deploy:functions": "firebase deploy --only functions",
+    "deploy:hosting": "firebase deploy --only hosting",
+    "emulators": "firebase emulators:start",
+    "install:all": "npm install && cd frontend && npm install && cd ../functions && npm install"
+  },
+  "keywords": [
+    "fantasy-football",
+    "firebase",
+    "react",
+    "typescript"
+  ],
+  "author": "",
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  }
+}
+

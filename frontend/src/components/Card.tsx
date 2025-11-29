@@ -1,4 +1,4 @@
-import React from "react";
+import React, { memo } from "react";
 
 interface CardProps {
   children: React.ReactNode;
@@ -12,6 +12,7 @@ interface CardHeaderProps {
   subtitle?: string;
   action?: React.ReactNode;
   className?: string;
+  icon?: React.ReactNode;
 }
 
 interface CardBodyProps {
@@ -26,12 +27,12 @@ interface CardFooterProps {
 
 const paddingStyles = {
   none: "",
-  sm: "p-3",
-  md: "p-4",
-  lg: "p-6",
+  sm: "p-2.5",
+  md: "p-3",
+  lg: "p-4",
 };
 
-export const Card: React.FC<CardProps> = ({
+export const Card: React.FC<CardProps> = memo(({
   children,
   className = "",
   padding = "md",
@@ -40,8 +41,8 @@ export const Card: React.FC<CardProps> = ({
   return (
     <div
       className={`
-        bg-surface rounded-card shadow-card border border-border
-        ${hover ? "hover:shadow-card-hover transition-shadow duration-200" : ""}
+        bg-white rounded-card border border-border/60 shadow-card
+        ${hover ? "hover:border-border hover:shadow-card-hover transition-all duration-100" : ""}
         ${paddingStyles[padding]}
         ${className}
       `}
@@ -49,46 +50,52 @@ export const Card: React.FC<CardProps> = ({
       {children}
     </div>
   );
-};
+});
 
-export const CardHeader: React.FC<CardHeaderProps> = ({
+Card.displayName = "Card";
+
+export const CardHeader: React.FC<CardHeaderProps> = memo(({
   title,
   subtitle,
   action,
   className = "",
+  icon,
 }) => {
   return (
-    <div className={`flex items-start justify-between ${className}`}>
-      <div>
-        <h3 className="text-card-title text-text-primary">{title}</h3>
-        {subtitle && (
-          <p className="mt-0.5 text-caption text-text-muted">{subtitle}</p>
+    <div className={`flex items-start justify-between gap-2 ${className}`}>
+      <div className="flex items-start gap-2">
+        {icon && (
+          <div className="shrink-0 w-7 h-7 rounded-md bg-primary-soft flex items-center justify-center text-primary">
+            {icon}
+          </div>
         )}
+        <div>
+          <h3 className="text-card-title text-text-primary">{title}</h3>
+          {subtitle && (
+            <p className="mt-0.5 text-tiny text-text-muted">{subtitle}</p>
+          )}
+        </div>
       </div>
-      {action && <div className="shrink-0 ml-4">{action}</div>}
+      {action && <div className="shrink-0">{action}</div>}
     </div>
   );
-};
+});
 
-export const CardBody: React.FC<CardBodyProps> = ({
-  children,
-  className = "",
-}) => {
-  return <div className={`${className}`}>{children}</div>;
-};
+CardHeader.displayName = "CardHeader";
 
-export const CardFooter: React.FC<CardFooterProps> = ({
-  children,
-  className = "",
-}) => {
-  return (
-    <div
-      className={`border-t border-border pt-4 mt-4 flex items-center justify-end gap-3 ${className}`}
-    >
-      {children}
-    </div>
-  );
-};
+export const CardBody: React.FC<CardBodyProps> = memo(({ children, className = "" }) => (
+  <div className={className}>{children}</div>
+));
+
+CardBody.displayName = "CardBody";
+
+export const CardFooter: React.FC<CardFooterProps> = memo(({ children, className = "" }) => (
+  <div className={`border-t border-border/40 pt-2.5 mt-2.5 flex items-center justify-end gap-2 ${className}`}>
+    {children}
+  </div>
+));
+
+CardFooter.displayName = "CardFooter";
 
 export default Card;
 

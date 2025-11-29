@@ -1,10 +1,15 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { auth, db } from "../../firebase";
-import { onAuthStateChanged, type User } from "firebase/auth";
+import React, { useEffect, useState, useMemo, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import { db } from "../../firebase";
 import { collection, query, where, getDocs, doc, getDoc, Timestamp } from "firebase/firestore";
-import type { Player, Game, UserPicks, PlayerUsage, PlayerOption } from "../../types";
+import type { GameWithId, PlayerUsage, PlayerOption } from "../../types";
 import { Button, Badge, Card, Alert, Input, Select, PlayerListSkeleton } from "../../components";
+import { useAuth } from "../../auth/AuthContext";
 import { useLeague } from "../../league/LeagueContext";
+import { submitPicks as submitPicksApi, getErrorMessage } from "../../lib/api";
+import { SEASON, SEASON_START } from "../../lib/config";
+import { mapGame, mapPlayer, mapPlayerUsage, mapUserPicks, toDate } from "../../lib/firestore";
+import { LuUsers, LuPlus, LuX, LuSearch, LuTriangleAlert, LuLock, LuCheck } from "react-icons/lu";
 
 type PositionKey = "qb" | "rb" | "wr";
 
@@ -19,12 +24,6 @@ interface PicksState {
   wrGameId?: string;
   wrLocked?: boolean;
 }
-
-const SEASON = "2025";
-
-// Regular season typically starts first week of September
-// This helps filter out playoff games from previous seasons that have overlapping week numbers
-const SEASON_START = new Date("2025-09-01T00:00:00Z");
 
 type SortOption = "fantasyPoints" | "kickoff" | "name";
 
@@ -45,14 +44,16 @@ function parseKickoffTime(kickoffTime: unknown): Date {
   return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 }
 
-// Position display configuration
+// Position display configuration - refined colors
 const positionConfig = {
-  qb: { label: "Quarterback", shortLabel: "QB", color: "text-red-600", bgColor: "bg-red-50" },
-  rb: { label: "Running Back", shortLabel: "RB", color: "text-blue-600", bgColor: "bg-blue-50" },
-  wr: { label: "Wide Receiver", shortLabel: "WR", color: "text-amber-600", bgColor: "bg-amber-50" },
+  qb: { label: "Quarterback", shortLabel: "QB", color: "text-rose-600", bgColor: "bg-rose-50/80", borderColor: "border-rose-100/60" },
+  rb: { label: "Running Back", shortLabel: "RB", color: "text-blue-600", bgColor: "bg-blue-50/80", borderColor: "border-blue-100/60" },
+  wr: { label: "Wide Receiver", shortLabel: "WR", color: "text-amber-600", bgColor: "bg-amber-50/80", borderColor: "border-amber-100/60" },
 };
 
 export const WeeklyPicksPage: React.FC = () => {
+  const navigate = useNavigate();
+  const { user: currentUser, loading: authLoading } = useAuth();
   const { activeLeagueId, loading: leagueLoading } = useLeague();
   const [players, setPlayers] = useState<PlayerOption[]>([]);
   const [picks, setPicks] = useState<PicksState>({});
@@ -62,7 +63,6 @@ export const WeeklyPicksPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [weekId, setWeekId] = useState<string>("");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [sortBy, setSortBy] = useState<SortOption>("fantasyPoints");
   const [hideUnavailable, setHideUnavailable] = useState<boolean>(false);
@@ -75,14 +75,6 @@ export const WeeklyPicksPage: React.FC = () => {
   const unavailableCount = useMemo(() => {
     return players.filter(p => p.isLocked || p.isUsed).length;
   }, [players]);
-
-  // Listen for auth state changes
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
-    });
-    return () => unsubscribe();
-  }, []);
 
   // Load available weeks (filter out completed weeks)
   useEffect(() => {
@@ -145,6 +137,8 @@ export const WeeklyPicksPage: React.FC = () => {
           const data = configSnap.data();
           const currentWeek = data.currentWeek || 1;
           setWeekId(`week-${currentWeek}`);
+        } else {
+          setWeekId("week-1");
         }
       } catch {
         // Fallback to week 1 if config not available
@@ -154,40 +148,57 @@ export const WeeklyPicksPage: React.FC = () => {
     loadCurrentWeek();
   }, []);
 
-  // Reset players when week or league changes to prevent stale data
+  // Load players, games, and user's existing picks
   useEffect(() => {
+    // Wait for auth and league context to finish loading
+    if (authLoading || leagueLoading) {
+      return;
+    }
+
+    // Don't run until we have weekId set (not empty string)
+    if (!weekId) {
+      return;
+    }
+
+    // If missing user or league, show not loading
+    if (!currentUser || !leagueId) {
+      setLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    // Capture values for use in async function (TypeScript narrowing)
+    const userId = currentUser.uid;
+    const currentLeagueId = leagueId;
+    const currentWeekId = weekId;
+
+    // Reset state synchronously before async load
+    setLoading(true);
     setPlayers([]);
     setUsedPlayerIds(new Set());
     setPicks({});
     setSavedPicks({});
-  }, [weekId, leagueId]);
 
-  // Load players, games, and user's existing picks
-  useEffect(() => {
     async function loadData() {
-      if (!currentUser || !weekId || !leagueId) {
-        setLoading(false);
-        return;
-      }
 
-      setLoading(true);
       try {
-        const weekNumber = parseInt(weekId.replace("week-", ""));
+        const weekNumber = parseInt(currentWeekId.replace("week-", ""));
 
         // Load games for this week
         const gamesRef = collection(db, "games");
         const gamesQuery = query(gamesRef, where("weekNumber", "==", weekNumber));
         const gamesSnap = await getDocs(gamesQuery);
 
-        const gamesMap = new Map<string, Game>();
-        gamesSnap.forEach((doc) => {
-          const data = doc.data();
-          const game = { id: doc.id, ...data } as Game;
+        const gamesMap = new Map<string, GameWithId>();
+        gamesSnap.forEach((gameDoc) => {
+          const game = mapGame(gameDoc);
+          if (!game) return;
 
           // Filter out games that are before the season start (e.g., playoff games from previous season)
-          const kickoff = parseKickoffTime(game.kickoffTime);
+          const kickoff = toDate(game.kickoffTime) || new Date();
           if (kickoff >= SEASON_START) {
-            gamesMap.set(doc.id, game);
+            gamesMap.set(gameDoc.id, game);
           }
         });
 
@@ -196,28 +207,29 @@ export const WeeklyPicksPage: React.FC = () => {
         const playersSnap = await getDocs(playersRef);
 
         // Load user's player usage for this season AND league
-        const usageRef = collection(db, "users", currentUser.uid, "playerUsage");
+        const usageRef = collection(db, "users", userId, "playerUsage");
         const usageQuery = query(
           usageRef,
           where("season", "==", SEASON),
-          where("leagueId", "==", leagueId)
+          where("leagueId", "==", currentLeagueId)
         );
         const usageSnap = await getDocs(usageQuery);
 
         const usedIds = new Set<string>();
         const usageByPlayer = new Map<string, PlayerUsage>();
-        usageSnap.forEach((doc) => {
-          const data = doc.data() as PlayerUsage;
-          usedIds.add(data.playerId);
-          usageByPlayer.set(data.playerId, data);
+        usageSnap.forEach((usageDoc) => {
+          const usage = mapPlayerUsage(usageDoc);
+          if (!usage) return;
+          usedIds.add(usage.playerId);
+          usageByPlayer.set(usage.playerId, usage);
         });
         setUsedPlayerIds(usedIds);
 
         // Load existing picks for this week
-        const pickDocRef = doc(db, "leagues", leagueId, "weeks", weekId, "picks", currentUser.uid);
+        const pickDocRef = doc(db, "leagues", currentLeagueId, "weeks", currentWeekId, "picks", userId);
         const pickSnap = await getDoc(pickDocRef);
-        if (pickSnap.exists()) {
-          const existingPicks = pickSnap.data() as UserPicks;
+        const existingPicks = mapUserPicks(pickSnap);
+        if (existingPicks) {
           const picksState: PicksState = {
             qbPlayerId: existingPicks.qbPlayerId,
             qbGameId: existingPicks.qbGameId,
@@ -242,7 +254,8 @@ export const WeeklyPicksPage: React.FC = () => {
         const playerOptions: PlayerOption[] = [];
 
         playersSnap.forEach((pDoc) => {
-          const player = pDoc.data() as Player;
+          const player = mapPlayer(pDoc);
+          if (!player) return;
 
           // Find games for this player's team this week
           gamesMap.forEach((game) => {
@@ -250,13 +263,18 @@ export const WeeklyPicksPage: React.FC = () => {
             const isAway = game.awayTeamId === player.teamId;
             if (!isHome && !isAway) return;
 
-            const kickoffTime = parseKickoffTime(game.kickoffTime);
-            const isLocked = now > kickoffTime.getTime() - oneHour;
+            // Ensure kickoffTime is a valid Date - defensive check
+            const kickoffTime = game.kickoffTime instanceof Date
+              ? game.kickoffTime
+              : new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // Far future = unlocked
+            const kickoffMs = kickoffTime.getTime();
+            // If kickoffMs is NaN (invalid date), treat as unlocked
+            const isLocked = !isNaN(kickoffMs) && now > kickoffMs - oneHour;
             const opponent = isHome ? `vs ${game.awayTeamName}` : `@ ${game.homeTeamName}`;
 
             // Check if player was used in a different week
             const usage = usageByPlayer.get(pDoc.id);
-            const isUsedInDifferentWeek = usage && usage.firstUsedWeek !== weekId;
+            const isUsedInDifferentWeek = usage && usage.firstUsedWeek !== currentWeekId;
 
             playerOptions.push({
               id: pDoc.id,
@@ -283,26 +301,42 @@ export const WeeklyPicksPage: React.FC = () => {
 
         // Sort by kickoff time
         playerOptions.sort((a, b) => a.kickoff.getTime() - b.kickoff.getTime());
-        setPlayers(playerOptions);
+
+        // Only update state if the effect hasn't been cancelled
+        if (!cancelled) {
+          setPlayers(playerOptions);
+        }
       } catch {
-        setMessage({ type: "error", text: "Failed to load players and games" });
+        if (!cancelled) {
+          setMessage({ type: "error", text: "Failed to load players and games" });
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
+
     loadData();
-  }, [weekId, leagueId, currentUser]);
 
-  const handlePick = (pos: PositionKey, option: PlayerOption) => {
+    // Cleanup function to prevent state updates if component unmounts or deps change
+    return () => {
+      cancelled = true;
+    };
+  }, [weekId, leagueId, currentUser, authLoading, leagueLoading]);
+
+  const handlePick = useCallback((pos: PositionKey, option: PlayerOption) => {
     if (option.isLocked || option.isUsed) return;
-    if (picks[`${pos}Locked` as keyof PicksState]) return;
 
-    setPicks((prev) => ({
-      ...prev,
-      [`${pos}PlayerId`]: option.id,
-      [`${pos}GameId`]: option.gameId,
-    }));
-  };
+    setPicks((prev) => {
+      if (prev[`${pos}Locked` as keyof PicksState]) return prev;
+      return {
+        ...prev,
+        [`${pos}PlayerId`]: option.id,
+        [`${pos}GameId`]: option.gameId,
+      };
+    });
+  }, []);
 
   // Filter players by search query (name or team) and availability
   const filteredPlayers = useMemo(() => {
@@ -349,36 +383,26 @@ export const WeeklyPicksPage: React.FC = () => {
     wr: filteredPlayers.filter((p) => p.position === "WR"),
   }), [filteredPlayers]);
 
-  const savePicks = async () => {
-    if (!currentUser) return;
+  const savePicks = useCallback(async () => {
+    if (!currentUser || !leagueId) return;
 
     setSaving(true);
     setMessage(null);
 
     try {
-      const token = await currentUser.getIdToken();
-      const res = await fetch("/submitPicks", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
+      const data = await submitPicksApi(currentUser, {
+        leagueId,
+        weekId,
+        picks: {
+          qbPlayerId: picks.qbPlayerId,
+          qbGameId: picks.qbGameId,
+          rbPlayerId: picks.rbPlayerId,
+          rbGameId: picks.rbGameId,
+          wrPlayerId: picks.wrPlayerId,
+          wrGameId: picks.wrGameId,
         },
-        body: JSON.stringify({
-          leagueId,
-          weekId,
-          userId: currentUser.uid,
-          picks: {
-            qbPlayerId: picks.qbPlayerId,
-            qbGameId: picks.qbGameId,
-            rbPlayerId: picks.rbPlayerId,
-            rbGameId: picks.rbGameId,
-            wrPlayerId: picks.wrPlayerId,
-            wrGameId: picks.wrGameId,
-          },
-        }),
       });
 
-      const data = await res.json();
       if (data.ok) {
         setSavedPicks(picks);
         const accepted = data.accepted?.join(", ") || "none";
@@ -387,14 +411,14 @@ export const WeeklyPicksPage: React.FC = () => {
       } else {
         setMessage({ type: "error", text: data.error || "Failed to save picks" });
       }
-    } catch {
-      setMessage({ type: "error", text: "Network error saving picks" });
+    } catch (error) {
+      setMessage({ type: "error", text: getErrorMessage(error) });
     } finally {
       setSaving(false);
     }
-  };
+  }, [currentUser, leagueId, weekId, picks]);
 
-  const getTimeUntilLock = (kickoff: Date): string => {
+  const getTimeUntilLock = useCallback((kickoff: Date): string => {
     const now = Date.now();
     const lockTime = kickoff.getTime() - 60 * 60 * 1000;
     const diff = lockTime - now;
@@ -409,7 +433,7 @@ export const WeeklyPicksPage: React.FC = () => {
       return `${days}d ${hours % 24}h`;
     }
     return `${hours}h ${mins}m`;
-  };
+  }, []);
 
   const renderColumn = (pos: PositionKey) => {
     const posPlayers = groupedByPos[pos];
@@ -421,75 +445,53 @@ export const WeeklyPicksPage: React.FC = () => {
     return (
       <Card padding="none" className="flex flex-col overflow-hidden">
         {/* Position header */}
-        <div className={`px-4 py-3 border-b border-border ${config.bgColor}`}>
+        <div className={`px-2.5 py-2 border-b ${config.borderColor} ${config.bgColor}`}>
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className={`text-card-title font-semibold ${config.color}`}>
-                {config.label}
-              </span>
-              <Badge variant="neutral" size="sm">{config.shortLabel}</Badge>
+            <div className="flex items-center gap-1.5">
+              <span className={`text-body-sm font-semibold ${config.color}`}>{config.shortLabel}</span>
+              <span className="text-tiny text-text-muted">{config.label}</span>
             </div>
-            {isLocked && <Badge variant="error">LOCKED</Badge>}
+            {isLocked && <Badge variant="error" size="sm" icon={<LuLock className="w-2.5 h-2.5" />}>Locked</Badge>}
           </div>
         </div>
 
         {/* Current selection */}
-        <div className="p-3 bg-subtle/50 border-b border-border">
+        <div className="px-2.5 py-2 bg-subtle/40 border-b border-border/30">
           {selectedPlayer ? (
-            <div className="flex items-start gap-3">
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-body font-bold ${config.bgColor} ${config.color}`}>
+            <div className="flex items-center gap-2">
+              <div className={`w-8 h-8 rounded-md flex items-center justify-center text-tiny font-bold ${config.bgColor} ${config.color}`}>
                 {config.shortLabel}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-body-sm font-semibold text-text-primary truncate">
-                  {selectedPlayer.name}
-                </p>
-                <p className="text-caption text-text-secondary">
-                  {selectedPlayer.team} {selectedPlayer.opponent}
-                </p>
-                <p className="text-tiny text-text-muted">
-                  {selectedPlayer.kickoffFormatted}
-                </p>
+                <p className="text-body-sm font-medium text-text-primary truncate">{selectedPlayer.name}</p>
+                <p className="text-tiny text-text-muted">{selectedPlayer.team} {selectedPlayer.opponent}</p>
               </div>
               {!isLocked && (
                 <button
-                  onClick={() => setPicks(prev => ({
-                    ...prev,
-                    [`${pos}PlayerId`]: undefined,
-                    [`${pos}GameId`]: undefined,
-                  }))}
-                  className="text-text-muted hover:text-text-primary p-1"
-                  aria-label="Clear selection"
+                  onClick={() => setPicks(prev => ({ ...prev, [`${pos}PlayerId`]: undefined, [`${pos}GameId`]: undefined }))}
+                  className="text-text-muted hover:text-error p-0.5 rounded hover:bg-error-soft transition-colors"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
+                  <LuX className="w-3 h-3" />
                 </button>
               )}
             </div>
           ) : (
-            <div className="flex items-center gap-3 py-1">
-              <div className="w-10 h-10 rounded-lg border-2 border-dashed border-border flex items-center justify-center text-text-muted">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-md border border-dashed border-border/80 flex items-center justify-center text-text-muted">
+                <LuPlus className="w-3.5 h-3.5" />
               </div>
-              <p className="text-body-sm text-text-muted">Select a {config.label.toLowerCase()}</p>
+              <p className="text-tiny text-text-muted">Select a {config.label.toLowerCase()}</p>
             </div>
           )}
         </div>
 
         {/* Player list */}
-        <div className="flex-1 overflow-y-auto max-h-80 divide-y divide-border">
+        <div className="flex-1 overflow-y-auto max-h-64">
           {loading ? (
-            <div className="p-3">
-              <PlayerListSkeleton count={4} />
-            </div>
+            <div className="p-2.5"><PlayerListSkeleton count={4} /></div>
           ) : posPlayers.length === 0 ? (
-            <div className="p-6 text-center">
-              <p className="text-body-sm text-text-muted">
-                {searchQuery ? "No players match your search" : "No players available"}
-              </p>
+            <div className="p-5 text-center">
+              <p className="text-tiny text-text-muted">{searchQuery ? "No players match" : "No players available"}</p>
             </div>
           ) : (
             posPlayers.map((p) => {
@@ -503,44 +505,24 @@ export const WeeklyPicksPage: React.FC = () => {
                   key={`${p.id}-${p.gameId}`}
                   onClick={() => handlePick(pos, p)}
                   disabled={isDisabled}
-                  className={`w-full text-left px-4 py-3 transition-all duration-150 focus:outline-none focus:bg-subtle ${
-                    selected
-                      ? "bg-primary-soft border-l-4 border-l-primary"
-                      : isDisabled
-                      ? "opacity-50 cursor-not-allowed bg-surface"
-                      : "hover:bg-subtle bg-surface"
+                  className={`w-full text-left px-2.5 py-2 transition-colors border-b border-border/20 last:border-0 ${
+                    selected ? "bg-primary-soft/80 border-l-2 border-l-primary" : isDisabled ? "opacity-50 cursor-not-allowed" : "hover:bg-subtle/60"
                   }`}
                 >
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-center gap-1.5">
                     <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-body-sm font-medium text-text-primary truncate">
-                          {p.name}
-                        </span>
-                        {fantasyPts !== undefined && fantasyPts > 0 && (
-                          <Badge variant="info" size="sm">
-                            {fantasyPts.toFixed(1)} pts
-                          </Badge>
-                        )}
-                        {p.isUsed && (
-                          <Badge variant="warning" size="sm">USED</Badge>
-                        )}
-                        {p.isLocked && (
-                          <Badge variant="error" size="sm">LOCKED</Badge>
-                        )}
+                      <div className="flex items-center gap-1 flex-wrap">
+                        <span className="text-body-sm font-medium text-text-primary truncate">{p.name}</span>
+                        {selected && <LuCheck className="w-3 h-3 text-primary" />}
+                        {fantasyPts !== undefined && fantasyPts > 0 && <Badge variant="info" size="sm">{fantasyPts.toFixed(1)}</Badge>}
+                        {p.isUsed && <Badge variant="warning" size="sm">Used</Badge>}
+                        {p.isLocked && <Badge variant="error" size="sm">Locked</Badge>}
                       </div>
-                      <p className="text-caption text-text-secondary mt-0.5">
-                        {p.team} {p.opponent}
-                      </p>
+                      <p className="text-tiny text-text-muted">{p.team} {p.opponent}</p>
                     </div>
                     <div className="text-right shrink-0">
-                      <p className={`text-caption font-medium ${
-                        p.isLocked ? "text-error" : "text-text-muted"
-                      }`}>
+                      <p className={`text-tiny ${p.isLocked ? "text-error" : "text-text-subtle"}`}>
                         {timeUntilLock === "LOCKED" ? "Locked" : timeUntilLock}
-                      </p>
-                      <p className="text-tiny text-text-subtle">
-                        {p.kickoff.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
                       </p>
                     </div>
                   </div>
@@ -553,7 +535,9 @@ export const WeeklyPicksPage: React.FC = () => {
     );
   };
 
-  const hasChanges = JSON.stringify(picks) !== JSON.stringify(savedPicks);
+  const hasChanges = useMemo(() => {
+    return JSON.stringify(picks) !== JSON.stringify(savedPicks);
+  }, [picks, savedPicks]);
 
   // Generate week options from available weeks only
   const weekOptions = availableWeeks.map((weekNum) => ({
@@ -567,163 +551,102 @@ export const WeeklyPicksPage: React.FC = () => {
     { value: "name", label: "Player Name" },
   ];
 
-  // Show message if no league selected
-  if (!leagueLoading && !leagueId) {
+  if (!authLoading && !leagueLoading && !leagueId) {
     return (
-      <div className="text-center py-12">
-        <div className="inline-flex items-center justify-center w-16 h-16 bg-primary-soft rounded-full mb-4">
-          <svg className="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-          </svg>
+      <div className="text-center py-10">
+        <div className="inline-flex items-center justify-center w-12 h-12 bg-primary-soft rounded-lg mb-3">
+          <LuUsers className="w-6 h-6 text-primary" />
         </div>
-        <h2 className="text-section-title font-bold text-text-primary mb-2">No League Selected</h2>
-        <p className="text-body text-text-secondary mb-6">
+        <h2 className="text-card-title text-text-primary mb-1">No League Selected</h2>
+        <p className="text-body-sm text-text-secondary mb-4 max-w-xs mx-auto">
           Join or create a league to start making picks.
         </p>
-        <div className="flex justify-center gap-3">
-          <Button variant="primary" onClick={() => window.location.href = "/create-league"}>
-            Create League
-          </Button>
-          <Button variant="secondary" onClick={() => window.location.href = "/join"}>
-            Join League
-          </Button>
+        <div className="flex justify-center gap-2">
+          <Button variant="primary" size="sm" onClick={() => navigate("/create-league")}>Create League</Button>
+          <Button variant="secondary" size="sm" onClick={() => navigate("/join")}>Join League</Button>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Page header */}
-      <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div>
-          <h1 className="text-page-title text-text-primary">Weekly Picks</h1>
-          <p className="text-body text-text-secondary mt-1">
-            Select one player from each position. Picks lock 1 hour before kickoff.
+          <h1 className="text-section-title text-text-primary">Weekly Picks</h1>
+          <p className="text-body-sm text-text-muted mt-0.5">
+            Select one player per position. Locks 1 hour before kickoff.
           </p>
-          <div className="flex flex-wrap gap-2 mt-3">
-            <Badge variant="neutral" size="md">1 QB</Badge>
-            <Badge variant="neutral" size="md">1 RB</Badge>
-            <Badge variant="neutral" size="md">1 WR</Badge>
-            <Badge variant="warning" size="md">One-and-done rule</Badge>
-          </div>
         </div>
+        <div className="flex items-center gap-2">
+          <div className="flex gap-1">
+            <Badge variant="neutral" size="sm">QB</Badge>
+            <Badge variant="neutral" size="sm">RB</Badge>
+            <Badge variant="neutral" size="sm">WR</Badge>
+          </div>
+          <Select value={weekId} onChange={(e) => setWeekId(e.target.value)} options={weekOptions} className="w-28" />
+        </div>
+      </div>
 
-        {/* Week selector */}
-        <div className="shrink-0">
-          <Select
-            value={weekId}
-            onChange={(e) => setWeekId(e.target.value)}
-            options={weekOptions}
-            className="w-40"
+      {message && <Alert type={message.type} message={message.text} onClose={() => setMessage(null)} />}
+
+      {/* Controls */}
+      <div className="flex flex-col sm:flex-row gap-2">
+        <div className="flex-1">
+          <Input
+            type="text"
+            placeholder="Search players..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            leftIcon={<LuSearch className="w-3.5 h-3.5" />}
+            rightIcon={searchQuery ? <button onClick={() => setSearchQuery("")} className="hover:text-text-primary"><LuX className="w-3 h-3" /></button> : undefined}
           />
         </div>
+        <div className="flex items-center gap-3 shrink-0">
+          <label className="flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={hideUnavailable}
+              onChange={(e) => setHideUnavailable(e.target.checked)}
+              className="w-3 h-3 rounded border-border text-primary focus:ring-primary focus:ring-offset-0"
+            />
+            <span className="text-tiny text-text-secondary">Hide unavailable ({unavailableCount})</span>
+          </label>
+          <Select value={sortBy} onChange={(e) => setSortBy(e.target.value as SortOption)} options={sortOptions} className="w-24" />
+        </div>
       </div>
 
-      {/* Alert messages */}
-      {message && (
-        <Alert
-          type={message.type}
-          message={message.text}
-          onClose={() => setMessage(null)}
-        />
+      {usedPlayerIds.size > 0 && (
+        <div className="flex items-center gap-1.5 text-tiny text-text-muted bg-warning-soft/50 px-2.5 py-1.5 rounded-md">
+          <LuTriangleAlert className="w-3 h-3 text-warning shrink-0" />
+          <span>Used <strong className="font-medium text-warning-text">{usedPlayerIds.size}</strong> player{usedPlayerIds.size !== 1 ? 's' : ''} this season</span>
+        </div>
       )}
 
-      {/* Search, Filter, and Sort controls */}
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex-1">
-            <Input
-              type="text"
-              placeholder="Search by player name or team..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              leftIcon={
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
-              }
-              rightIcon={
-                searchQuery ? (
-                  <button
-                    onClick={() => setSearchQuery("")}
-                    className="hover:text-text-primary transition-colors"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                ) : undefined
-              }
-            />
-          </div>
-          <div className="flex items-center gap-4 shrink-0">
-            <label className="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={hideUnavailable}
-                onChange={(e) => setHideUnavailable(e.target.checked)}
-                className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
-              />
-              <span className="text-body-sm text-text-secondary">
-                Hide locked/used ({unavailableCount})
-              </span>
-            </label>
-            <div className="flex items-center gap-2">
-              <span className="text-caption text-text-muted">Sort:</span>
-              <Select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as SortOption)}
-                options={sortOptions}
-                className="w-32"
-              />
-            </div>
-          </div>
-        </div>
-
-        {/* Used players summary */}
-        {usedPlayerIds.size > 0 && (
-          <div className="flex items-center gap-2 text-caption text-text-muted">
-            <svg className="w-4 h-4 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-            </svg>
-            <span>You've used {usedPlayerIds.size} player{usedPlayerIds.size !== 1 ? 's' : ''} this season (one-and-done rule)</span>
-          </div>
-        )}
-      </div>
-
       {/* Position columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
         {renderColumn("qb")}
         {renderColumn("rb")}
         {renderColumn("wr")}
       </div>
 
       {/* Save bar */}
-      <Card className="sticky bottom-4 flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <Card padding="sm" className="sticky bottom-2 flex items-center justify-between gap-2 shadow-card-hover">
+        <div className="flex items-center gap-1.5">
           {hasChanges ? (
             <>
-              <div className="w-2 h-2 rounded-full bg-warning animate-pulse" />
-              <span className="text-body-sm text-warning-text font-medium">
-                You have unsaved changes
-              </span>
+              <div className="w-1.5 h-1.5 rounded-full bg-warning animate-pulse" />
+              <span className="text-tiny text-warning-text font-medium">Unsaved changes</span>
             </>
           ) : (
             <>
-              <div className="w-2 h-2 rounded-full bg-success" />
-              <span className="text-body-sm text-text-muted">
-                All changes saved
-              </span>
+              <LuCheck className="w-3 h-3 text-success" />
+              <span className="text-tiny text-text-muted">Saved</span>
             </>
           )}
         </div>
-        <Button
-          onClick={savePicks}
-          disabled={saving || !hasChanges}
-          loading={saving}
-          size="md"
-        >
+        <Button onClick={savePicks} disabled={saving || !hasChanges} loading={saving} size="sm">
           {saving ? "Saving..." : "Save Picks"}
         </Button>
       </Card>

@@ -2,30 +2,44 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Helper function to check if user is signed in
+    // =========================================================================
+    // Helper Functions
+    // =========================================================================
+
+    // Check if user is signed in
     function isSignedIn() {
       return request.auth != null;
     }
 
-    // Helper to check if this is the owner of the resource
+    // Check if this is the owner of the resource
     function isOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    // Helper to check if user is a member of a league
+    // Check if user is a member of a league
     function isLeagueMember(leagueId) {
       return isSignedIn() &&
         exists(/databases/$(database)/documents/leagues/$(leagueId)/members/$(request.auth.uid)) &&
         get(/databases/$(database)/documents/leagues/$(leagueId)/members/$(request.auth.uid)).data.isActive == true;
     }
 
-    // Helper to check if user is the league owner
+    // Check if user is the league owner
     function isLeagueOwner(leagueId) {
       return isSignedIn() &&
         get(/databases/$(database)/documents/leagues/$(leagueId)).data.ownerId == request.auth.uid;
     }
 
-    // ===== Users =====
+    // Validate picks data structure
+    function isValidPicksData() {
+      let data = request.resource.data;
+      // Picks must have userId matching the document ID
+      return data.keys().hasAll(['userId']) &&
+        data.userId == request.auth.uid;
+    }
+
+    // =========================================================================
+    // Users Collection
+    // =========================================================================
     match /users/{userId} {
       allow read: if isSignedIn();
       allow write: if isOwner(userId);
@@ -37,7 +51,9 @@ service cloud.firestore {
       }
     }
 
-    // ===== Leagues =====
+    // =========================================================================
+    // Leagues Collection
+    // =========================================================================
     match /leagues/{leagueId} {
       // Anyone signed in can read league info (for join flow)
       allow read: if isSignedIn();
@@ -57,9 +73,12 @@ service cloud.firestore {
         allow write: if false; // Only backend can manage weeks
 
         // Picks - league members can read all, write only their own
+        // Note: Game lock time validation is handled by the submitPicks Cloud Function
+        // for better UX (can provide specific error messages). The function validates
+        // that picks are submitted before game kickoff.
         match /picks/{userId} {
           allow read: if isLeagueMember(leagueId);
-          allow write: if isOwner(userId) && isLeagueMember(leagueId);
+          allow write: if isOwner(userId) && isLeagueMember(leagueId) && isValidPicksData();
         }
 
         // Scores - read only for league members, backend writes
@@ -76,19 +95,25 @@ service cloud.firestore {
       }
     }
 
-    // ===== Players =====
+    // =========================================================================
+    // Players Collection (synced from ESPN)
+    // =========================================================================
     match /players/{playerId} {
       allow read: if isSignedIn();
       allow write: if false; // Only backend can sync players
     }
 
-    // ===== Games =====
+    // =========================================================================
+    // Games Collection (synced from ESPN)
+    // =========================================================================
     match /games/{gameId} {
       allow read: if true; // Public for schedule display
       allow write: if false; // Only backend can sync schedule
     }
 
-    // ===== Config =====
+    // =========================================================================
+    // Config Collection (app configuration)
+    // =========================================================================
     match /config/{docId} {
       allow read: if true; // Public for season config
       allow write: if false; // Only backend can update config

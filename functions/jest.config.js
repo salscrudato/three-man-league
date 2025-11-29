@@ -10,6 +10,9 @@ module.exports = {
   transform: {
     '^.+\\.tsx?$': ['ts-jest', {
       useESM: false,
+      tsconfig: {
+        isolatedModules: true,
+      },
     }],
   },
 };

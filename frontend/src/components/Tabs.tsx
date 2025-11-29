@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useId } from "react";
 
 interface Tab {
   id: string;
@@ -13,6 +13,7 @@ interface TabsProps {
   variant?: "underline" | "pills" | "segmented";
   size?: "sm" | "md";
   className?: string;
+  ariaLabel?: string;
 }
 
 export const Tabs: React.FC<TabsProps> = ({
@@ -22,85 +23,71 @@ export const Tabs: React.FC<TabsProps> = ({
   variant = "underline",
   size = "md",
   className = "",
+  ariaLabel = "Tabs",
 }) => {
-  const sizeStyles = {
-    sm: "text-caption px-3 py-1.5",
-    md: "text-body-sm px-4 py-2",
+  const tablistId = useId();
+  const sizeStyles = { sm: "text-tiny px-2 py-1", md: "text-body-sm px-2.5 py-1.5" };
+
+  const handleKeyDown = (e: React.KeyboardEvent, currentIndex: number) => {
+    let newIndex = currentIndex;
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      newIndex = (currentIndex + 1) % tabs.length;
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      newIndex = (currentIndex - 1 + tabs.length) % tabs.length;
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      newIndex = 0;
+    } else if (e.key === "End") {
+      e.preventDefault();
+      newIndex = tabs.length - 1;
+    }
+    if (newIndex !== currentIndex) onChange(tabs[newIndex].id);
   };
 
-  if (variant === "underline") {
-    return (
-      <div className={`flex border-b border-border ${className}`}>
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => onChange(tab.id)}
-            className={`
-              relative ${sizeStyles[size]} font-medium transition-colors
-              ${activeTab === tab.id
-                ? "text-primary"
-                : "text-text-muted hover:text-text-primary"
-              }
-            `}
-          >
-            <div className="flex items-center gap-2">
-              {tab.icon}
-              <span>{tab.label}</span>
-            </div>
-            {activeTab === tab.id && (
-              <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary" />
-            )}
-          </button>
-        ))}
-      </div>
-    );
-  }
+  const TabButton = ({ tab, index }: { tab: Tab; index: number }) => {
+    const isActive = activeTab === tab.id;
+    const baseClass = `${sizeStyles[size]} font-medium transition-all duration-100`;
 
-  if (variant === "pills") {
-    return (
-      <div className={`flex gap-1 ${className}`}>
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => onChange(tab.id)}
-            className={`
-              ${sizeStyles[size]} font-medium rounded-button transition-all
-              ${activeTab === tab.id
-                ? "bg-primary text-white"
-                : "text-text-muted hover:text-text-primary hover:bg-subtle"
-              }
-            `}
-          >
-            <div className="flex items-center gap-2">
-              {tab.icon}
-              <span>{tab.label}</span>
-            </div>
-          </button>
-        ))}
-      </div>
-    );
-  }
+    const variantClass = {
+      underline: `relative ${isActive ? "text-primary" : "text-text-muted hover:text-text-primary"}`,
+      pills: `rounded-button ${isActive ? "bg-primary text-white shadow-sm" : "text-text-muted hover:text-text-primary hover:bg-subtle"}`,
+      segmented: `rounded-button ${isActive ? "bg-white text-text-primary shadow-sm" : "text-text-muted hover:text-text-primary"}`,
+    }[variant];
 
-  // Segmented control style
+    return (
+      <button
+        role="tab"
+        id={`${tablistId}-tab-${tab.id}`}
+        aria-selected={isActive}
+        aria-controls={`${tablistId}-panel-${tab.id}`}
+        tabIndex={isActive ? 0 : -1}
+        onClick={() => onChange(tab.id)}
+        onKeyDown={(e) => handleKeyDown(e, index)}
+        className={`${baseClass} ${variantClass}`}
+      >
+        <div className="flex items-center gap-1">
+          {tab.icon && <span>{tab.icon}</span>}
+          <span>{tab.label}</span>
+        </div>
+        {variant === "underline" && isActive && (
+          <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-full" />
+        )}
+      </button>
+    );
+  };
+
+  const containerClass = {
+    underline: `flex border-b border-border/40 ${className}`,
+    pills: `flex gap-0.5 ${className}`,
+    segmented: `inline-flex bg-subtle rounded-md p-0.5 ${className}`,
+  }[variant];
+
   return (
-    <div className={`inline-flex bg-subtle rounded-button p-1 ${className}`}>
-      {tabs.map((tab) => (
-        <button
-          key={tab.id}
-          onClick={() => onChange(tab.id)}
-          className={`
-            ${sizeStyles[size]} font-medium rounded-badge transition-all
-            ${activeTab === tab.id
-              ? "bg-surface text-text-primary shadow-sm"
-              : "text-text-muted hover:text-text-primary"
-            }
-          `}
-        >
-          <div className="flex items-center gap-2">
-            {tab.icon}
-            <span>{tab.label}</span>
-          </div>
-        </button>
+    <div role="tablist" aria-label={ariaLabel} className={containerClass}>
+      {tabs.map((tab, index) => (
+        <TabButton key={tab.id} tab={tab} index={index} />
       ))}
     </div>
   );
